@@ -1,0 +1,19 @@
+{
+  "name": "fastfactions",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/haydan64/fastfactions.git"
+  },
+  "author": "Haydan Fisher",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/haydan64/fastfactions/issues"
+  },
+  "homepage": "https://github.com/haydan64/fastfactions#readme",
+  "description": ""
+}
