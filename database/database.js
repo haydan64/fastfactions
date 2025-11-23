@@ -171,6 +171,24 @@ async function getMinecraftProfileByUsername(username) {
   return result.rows[0] || null;
 }
 
+async function getAllowlistEntries() {
+  const result = await pool.query(
+    'SELECT name, xuid, ignores_player_limit FROM allowlist_entries ORDER BY LOWER(name);'
+  );
+  return result.rows;
+}
+
+async function getAllowlistEntryByName(name) {
+  if (!name) return null;
+  const result = await pool.query('SELECT * FROM allowlist_entries WHERE LOWER(name) = LOWER($1);', [name]);
+  return result.rows[0] || null;
+}
+
+async function getServerPermissions() {
+  const result = await pool.query('SELECT xuid, permission FROM server_permissions ORDER BY xuid;');
+  return result.rows;
+}
+
 module.exports = {
   pool,
   runMigrations,
@@ -180,5 +198,8 @@ module.exports = {
   upsertMinecraftProfile,
   getMinecraftProfileByDiscordId,
   updateMinecraftProfileXuid,
-  getMinecraftProfileByUsername
+  getMinecraftProfileByUsername,
+  getAllowlistEntries,
+  getAllowlistEntryByName,
+  getServerPermissions
 };
