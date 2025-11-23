@@ -3,7 +3,9 @@ const { Client, GatewayIntentBits, Partials, EmbedBuilder } = require('discord.j
 const eventBus = require('../eventBus');
 const {
   upsertMinecraftProfile,
-  getMinecraftProfileByDiscordId
+  getMinecraftProfileByDiscordId,
+  getMinecraftProfileByUsername,
+  getAllowlistEntryByName
 } = require('../database/database');
 const { loadCommands, registerCommands } = require('./registerCommands');
 
@@ -160,7 +162,9 @@ function buildCommandContext() {
     ensureRole,
     formatUser,
     upsertMinecraftProfile,
-    getMinecraftProfileByDiscordId
+    getMinecraftProfileByDiscordId,
+    getMinecraftProfileByUsername,
+    getAllowlistEntryByName
   };
 }
 

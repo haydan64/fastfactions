@@ -6,7 +6,9 @@ const {
   upsertAllowlistEntry: dbUpsertAllowlistEntry,
   removeAllowlistEntry: dbRemoveAllowlistEntry,
   upsertPermission: dbUpsertPermission,
-  updateMinecraftProfileXuid: dbUpdateMinecraftProfileXuid
+  updateMinecraftProfileXuid: dbUpdateMinecraftProfileXuid,
+  getAllowlistEntries,
+  getServerPermissions
 } = require('../database/database');
 
 const {
@@ -175,9 +177,48 @@ class BedrockServerController {
     });
   }
 
+  async syncServerConfigFromDatabase() {
+    try {
+      const allowlistEntries = await getAllowlistEntries();
+      const formattedAllowlist = allowlistEntries.map((entry) => ({
+        name: entry.name,
+        xuid: entry.xuid || undefined,
+        ignoresPlayerLimit: Boolean(entry.ignores_player_limit)
+      }));
+      this.saveJson(ALLOWLIST_PATH, formattedAllowlist);
+
+      const permissions = await getServerPermissions();
+      const formattedPermissions = permissions.map(({ xuid, permission }) => ({ xuid, permission }));
+      this.saveJson(PERMISSIONS_PATH, formattedPermissions);
+
+      eventBus.emit(SERVER_LOG, {
+        level: 'info',
+        message: 'Synced allowlist and permissions from database before starting BDS.'
+      });
+    } catch (err) {
+      eventBus.emit(SERVER_LOG, {
+        level: 'error',
+        message: `Failed to sync server config from database: ${err.message}`,
+        important: true
+      });
+      throw err;
+    }
+  }
+
   async start(binaryPath = process.env.BDS_BINARY || DEFAULT_BINARY) {
     this.ensureDirectories();
     this.ensureLinkAddon();
+
+    try {
+      await this.syncServerConfigFromDatabase();
+    } catch (err) {
+      eventBus.emit(SERVER_STATE, {
+        state: 'error',
+        message: 'Unable to start BDS because configuration sync failed.',
+        important: true
+      });
+      return;
+    }
 
     if (!fs.existsSync(binaryPath)) {
       const message = `Bedrock server binary missing at ${binaryPath}`;
@@ -246,6 +287,15 @@ class BedrockServerController {
     }
     eventBus.emit(SERVER_STATE, { state: 'stopping', message: 'Stopping Bedrock server', important: true });
     this.process.kill('SIGTERM');
+  }
+
+  forceStop() {
+    if (!this.process) {
+      eventBus.emit(SERVER_STATE, { state: 'stopped', message: 'Server not running' });
+      return;
+    }
+    eventBus.emit(SERVER_STATE, { state: 'stopping', message: 'Force stopping Bedrock server', important: true });
+    this.process.kill('SIGKILL');
   }
 
   async restart() {
@@ -320,6 +370,8 @@ class BedrockServerController {
         return this.restart();
       case 'stop':
         return this.stop();
+      case 'forceStop':
+        return this.forceStop();
       case 'start':
         return this.start();
       case 'backup':
