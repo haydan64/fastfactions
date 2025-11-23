@@ -31,7 +31,12 @@ Thumbs.db
 *.key
 
 # ignore minecraft server files
-/mc/bds/
+/mc/bds/*
+!/mc/bds/.gitkeep
+!/mc/bds/worlds/
+!/mc/bds/worlds/Bedrock level/
+!/mc/bds/worlds/Bedrock level/.gitkeep
 
 # ignore discord bot environment
 /discordbot/.env
+
