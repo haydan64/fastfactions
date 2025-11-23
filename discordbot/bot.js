@@ -1,112 +1,42 @@
 const path = require('path');
-const {
-  Client,
-  GatewayIntentBits,
-  Partials,
-  REST,
-  Routes,
-  SlashCommandBuilder,
-  EmbedBuilder
-} = require('discord.js');
+const { Client, GatewayIntentBits, Partials, EmbedBuilder } = require('discord.js');
 const eventBus = require('../eventBus');
+const {
+  upsertMinecraftProfile,
+  getMinecraftProfileByDiscordId
+} = require('../database/database');
+const { loadCommands, registerCommands } = require('./registerCommands');
 
 const {
-  EVENTS: { SERVER_LOG, SERVER_STATE, SERVER_COMMAND }
+  EVENTS: { SERVER_LOG, SERVER_STATE }
 } = eventBus;
 
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const SERVER_LOG_CHANNEL = '1441903391830970489';
 const DISCORD_LOG_CHANNEL = '757597730666315837';
-
-function buildCommands() {
-  const commands = [
-    new SlashCommandBuilder()
-      .setName('commands')
-      .setDescription('Sir Aldric command groups')
-      .addSubcommandGroup((group) =>
-        group
-          .setName('developer')
-          .setDescription('Developer utilities')
-          .addSubcommand((sub) => sub.setName('ping').setDescription('Ping Sir Aldric'))
-      )
-      .addSubcommandGroup((group) =>
-        group
-          .setName('staff')
-          .setDescription('Staff tools')
-          .addSubcommand((sub) =>
-            sub
-              .setName('allowlist-add')
-              .setDescription('Add a player to the server allowlist')
-              .addStringOption((opt) => opt.setName('name').setDescription('Xbox Gamertag').setRequired(true))
-              .addStringOption((opt) =>
-                opt.setName('xuid').setDescription('Optional XUID for the player').setRequired(false)
-              )
-              .addBooleanOption((opt) =>
-                opt
-                  .setName('ignores_player_limit')
-                  .setDescription('Allow player to bypass player limit')
-                  .setRequired(false)
-              )
-          )
-          .addSubcommand((sub) =>
-            sub
-              .setName('allowlist-remove')
-              .setDescription('Remove a player from the server allowlist')
-              .addStringOption((opt) => opt.setName('name').setDescription('Xbox Gamertag').setRequired(true))
-          )
-      )
-      .addSubcommandGroup((group) =>
-        group
-          .setName('community')
-          .setDescription('Community commands')
-          .addSubcommand((sub) => sub.setName('help').setDescription('Player commands list'))
-      )
-      .addSubcommandGroup((group) =>
-        group
-          .setName('management')
-          .setDescription('Management commands')
-          .addSubcommand((sub) =>
-            sub
-              .setName('permission-set')
-              .setDescription('Set a player permission level by XUID')
-              .addStringOption((opt) =>
-                opt.setName('xuid').setDescription('Player XUID').setRequired(true)
-              )
-              .addStringOption((opt) =>
-                opt
-                  .setName('permission')
-                  .setDescription('Permission level')
-                  .addChoices(
-                    { name: 'operator', value: 'operator' },
-                    { name: 'member', value: 'member' },
-                    { name: 'visitor', value: 'visitor' }
-                  )
-                  .setRequired(true)
-              )
-          )
-      )
-  ];
-
-  return commands.map((cmd) => cmd.toJSON());
-}
-
-async function registerCommands() {
-  const token = process.env.DISCORD_TOKEN;
-  const clientId = process.env.DISCORD_CLIENT_ID;
-  const guildId = process.env.DISCORD_GUILD_ID;
-  if (!token || !clientId || !guildId) {
-    console.warn('Missing Discord token, client ID, or guild ID. Commands will not be registered.');
-    return;
-  }
-
-  const rest = new REST({ version: '10' }).setToken(token);
-  const commands = buildCommands();
-  await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
-}
+const ROLE_IDS = {
+  DEVELOPER: '804258017670856705',
+  ROYALTY: '757463635718176819',
+  STAFF: '796252628837335040'
+};
 
 function formatUser(user) {
   return `${user.tag || user.user?.tag || user.displayName || user.id}`;
+}
+
+function memberHasRole(member, roleId) {
+  return Boolean(member?.roles?.cache?.has(roleId));
+}
+
+async function ensureRole(interaction, roleIds, message) {
+  const member = interaction.member;
+  const allowed = roleIds.some((id) => memberHasRole(member, id));
+  if (!allowed) {
+    await interaction.reply({ content: message || 'You do not have permission to use this command.', ephemeral: true });
+    return false;
+  }
+  return true;
 }
 
 async function sendToChannel(client, channelId, payload) {
@@ -222,53 +152,35 @@ function registerServerEventHandlers(client) {
   });
 }
 
-async function handleInteraction(interaction) {
-  if (!interaction.isChatInputCommand()) return;
-  if (interaction.commandName !== 'commands') return;
+function buildCommandContext() {
+  return {
+    eventBus,
+    events: eventBus.EVENTS,
+    roleIds: ROLE_IDS,
+    ensureRole,
+    formatUser,
+    upsertMinecraftProfile,
+    getMinecraftProfileByDiscordId
+  };
+}
 
-  const group = interaction.options.getSubcommandGroup();
-  const sub = interaction.options.getSubcommand();
+function registerCommandHandlers(client, commands) {
+  const commandContext = buildCommandContext();
 
-  if (group === 'developer' && sub === 'ping') {
-    const sent = await interaction.reply({ content: 'Pong!', ephemeral: true, fetchReply: true });
-    const latency = sent.createdTimestamp - interaction.createdTimestamp;
-    await interaction.followUp({ content: `Round-trip latency: ${latency}ms`, ephemeral: true });
-    return;
-  }
+  client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
+    const command = commands.get(interaction.commandName);
+    if (!command) return;
 
-  if (group === 'staff' && sub === 'allowlist-add') {
-    const name = interaction.options.getString('name', true);
-    const xuid = interaction.options.getString('xuid');
-    const ignoresLimit = interaction.options.getBoolean('ignores_player_limit') || false;
-    eventBus.emit(SERVER_COMMAND, {
-      action: 'allowlist:add',
-      name,
-      xuid,
-      ignoresPlayerLimit: ignoresLimit
-    });
-    await interaction.reply({ content: `Queued allowlist update for **${name}**.`, ephemeral: true });
-    return;
-  }
-
-  if (group === 'staff' && sub === 'allowlist-remove') {
-    const name = interaction.options.getString('name', true);
-    eventBus.emit(SERVER_COMMAND, { action: 'allowlist:remove', name });
-    await interaction.reply({ content: `Queued allowlist removal for **${name}**.`, ephemeral: true });
-    return;
-  }
-
-  if (group === 'management' && sub === 'permission-set') {
-    const xuid = interaction.options.getString('xuid', true);
-    const permission = interaction.options.getString('permission', true);
-    eventBus.emit(SERVER_COMMAND, { action: 'permission:set', xuid, permission });
-    await interaction.reply({
-      content: `Queued permission update for **${xuid}** → **${permission}**.`,
-      ephemeral: true
-    });
-    return;
-  }
-
-  await interaction.reply({ content: 'Unknown or unimplemented command.', ephemeral: true });
+    try {
+      await command.execute(interaction, commandContext);
+    } catch (err) {
+      console.error(`Error executing command ${interaction.commandName}:`, err);
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: 'There was an error executing this command.', ephemeral: true });
+      }
+    }
+  });
 }
 
 module.exports = function createDiscordBot() {
@@ -283,19 +195,20 @@ module.exports = function createDiscordBot() {
     partials: [Partials.Message, Partials.Channel, Partials.GuildMember, Partials.User]
   });
 
+  const commands = loadCommands();
+
   client.on('ready', () => {
     console.log(`Sir Aldric is online as ${client.user.tag}`);
   });
 
-  client.on('interactionCreate', (interaction) => handleInteraction(interaction));
-
+  registerCommandHandlers(client, commands);
   registerDiscordAuditHandlers(client);
   registerServerEventHandlers(client);
 
   return {
     client,
     async start() {
-      await registerCommands();
+      await registerCommands(commands);
       const token = process.env.DISCORD_TOKEN;
       if (!token) {
         console.warn('DISCORD_TOKEN not provided. Bot will not connect.');

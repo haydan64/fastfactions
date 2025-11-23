@@ -5,7 +5,8 @@ const eventBus = require('../eventBus');
 const {
   upsertAllowlistEntry: dbUpsertAllowlistEntry,
   removeAllowlistEntry: dbRemoveAllowlistEntry,
-  upsertPermission: dbUpsertPermission
+  upsertPermission: dbUpsertPermission,
+  updateMinecraftProfileXuid: dbUpdateMinecraftProfileXuid
 } = require('../database/database');
 
 const {
@@ -278,6 +279,9 @@ class BedrockServerController {
 
   handleLogLine(line, level = 'info') {
     const normalized = line.trim();
+    if (normalized) {
+      console.log(`[BDS] ${normalized}`);
+    }
     const importantPatterns = [
       { regex: /server (start|starting)/i, reason: 'Server starting' },
       { regex: /server stop/i, reason: 'Server stopping' },
@@ -289,6 +293,14 @@ class BedrockServerController {
 
     const important = importantPatterns.some((pattern) => pattern.regex.test(normalized));
     eventBus.emit(SERVER_LOG, { level, message: normalized, important });
+
+    const playerJoinMatch = normalized.match(/Player connected:\s*([^,]+),\s*xuid:\s*([\w-]+)/i);
+    if (playerJoinMatch) {
+      const [, username, xuid] = playerJoinMatch;
+      dbUpdateMinecraftProfileXuid(username, xuid).catch((err) => {
+        console.error(`Failed to update XUID for ${username}: ${err.message}`);
+      });
+    }
 
     if (/server (start|started)/i.test(normalized)) {
       eventBus.emit(SERVER_STATE, { state: 'running', message: 'Bedrock server is online', important: true });
