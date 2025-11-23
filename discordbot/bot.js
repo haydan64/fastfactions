@@ -7,7 +7,7 @@ const {
   getMinecraftProfileByUsername,
   getAllowlistEntryByName
 } = require('../database/database');
-const { loadCommands, registerCommands } = require('./registerCommands');
+const { loadCommands } = require('./loadCommands');
 
 const {
   EVENTS: { SERVER_LOG, SERVER_STATE }
@@ -212,7 +212,6 @@ module.exports = function createDiscordBot() {
   return {
     client,
     async start() {
-      await registerCommands(commands);
       const token = process.env.DISCORD_TOKEN;
       if (!token) {
         console.warn('DISCORD_TOKEN not provided. Bot will not connect.');
