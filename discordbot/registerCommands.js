@@ -1,37 +1,6 @@
-const fs = require('fs');
 const path = require('path');
 const { REST, Routes } = require('discord.js');
-
-function getCommandFiles(dir) {
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    const resolvedPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...getCommandFiles(resolvedPath));
-    } else if (entry.isFile() && entry.name.endsWith('.js')) {
-      files.push(resolvedPath);
-    }
-  }
-  return files;
-}
-
-function loadCommands(commandsPath = path.join(__dirname, 'commands')) {
-  const commandFiles = getCommandFiles(commandsPath);
-  const commands = new Map();
-
-  for (const file of commandFiles) {
-    const command = require(file);
-    if (!command?.data || !command?.execute) continue;
-    const name = command.data.name;
-    if (commands.has(name)) {
-      console.warn(`Duplicate command name detected: ${name}. Using definition from ${file}.`);
-    }
-    commands.set(name, command);
-  }
-
-  return commands;
-}
+const { loadCommands } = require('./loadCommands');
 
 async function registerCommands(commands) {
   const token = process.env.DISCORD_TOKEN;
@@ -47,4 +16,13 @@ async function registerCommands(commands) {
   await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: payload });
 }
 
-module.exports = { loadCommands, registerCommands };
+async function main() {
+  require('dotenv').config({ path: path.join(__dirname, '.env') });
+  const commands = loadCommands();
+  await registerCommands(commands);
+}
+
+main().catch((err) => {
+  console.error('Failed to register commands:', err);
+  process.exitCode = 1;
+});
