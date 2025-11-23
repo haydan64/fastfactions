@@ -5,7 +5,10 @@ const eventBus = require('../eventBus');
 const {
   upsertAllowlistEntry: dbUpsertAllowlistEntry,
   removeAllowlistEntry: dbRemoveAllowlistEntry,
-  upsertPermission: dbUpsertPermission
+  upsertPermission: dbUpsertPermission,
+  updateMinecraftProfileXuid: dbUpdateMinecraftProfileXuid,
+  getAllowlistEntries: dbGetAllowlistEntries,
+  getServerPermissions: dbGetServerPermissions
 } = require('../database/database');
 
 const {
@@ -82,6 +85,40 @@ class BedrockServerController {
   ensureDirectories() {
     fs.mkdirSync(WORLD_PATH, { recursive: true });
     fs.mkdirSync(BACKUP_PATH, { recursive: true });
+  }
+
+  async rebuildAllowlistFromDatabase() {
+    try {
+      const entries = await dbGetAllowlistEntries();
+      const payload = entries.map((entry) => ({
+        name: entry.name,
+        xuid: entry.xuid || undefined,
+        ignoresPlayerLimit: Boolean(entry.ignoresPlayerLimit)
+      }));
+      this.saveJson(ALLOWLIST_PATH, payload);
+      eventBus.emit(SERVER_LOG, { level: 'info', message: 'Allowlist rebuilt from database.' });
+    } catch (err) {
+      eventBus.emit(SERVER_LOG, {
+        level: 'error',
+        message: `Failed to rebuild allowlist from database: ${err.message}`,
+        important: true
+      });
+    }
+  }
+
+  async rebuildPermissionsFromDatabase() {
+    try {
+      const permissions = await dbGetServerPermissions();
+      const payload = permissions.map((entry) => ({ xuid: entry.xuid, permission: entry.permission }));
+      this.saveJson(PERMISSIONS_PATH, payload);
+      eventBus.emit(SERVER_LOG, { level: 'info', message: 'Permissions rebuilt from database.' });
+    } catch (err) {
+      eventBus.emit(SERVER_LOG, {
+        level: 'error',
+        message: `Failed to rebuild permissions from database: ${err.message}`,
+        important: true
+      });
+    }
   }
 
   ensureLinkAddon() {
@@ -177,6 +214,8 @@ class BedrockServerController {
   async start(binaryPath = process.env.BDS_BINARY || DEFAULT_BINARY) {
     this.ensureDirectories();
     this.ensureLinkAddon();
+    await this.rebuildAllowlistFromDatabase();
+    await this.rebuildPermissionsFromDatabase();
 
     if (!fs.existsSync(binaryPath)) {
       const message = `Bedrock server binary missing at ${binaryPath}`;
@@ -247,6 +286,15 @@ class BedrockServerController {
     this.process.kill('SIGTERM');
   }
 
+  forceStop() {
+    if (!this.process) {
+      eventBus.emit(SERVER_STATE, { state: 'stopped', message: 'Server not running' });
+      return;
+    }
+    eventBus.emit(SERVER_STATE, { state: 'stopping', message: 'Force-stopping Bedrock server', important: true });
+    this.process.kill('SIGKILL');
+  }
+
   async restart() {
     this.stop();
     await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -278,6 +326,9 @@ class BedrockServerController {
 
   handleLogLine(line, level = 'info') {
     const normalized = line.trim();
+    if (normalized) {
+      console.log(`[BDS] ${normalized}`);
+    }
     const importantPatterns = [
       { regex: /server (start|starting)/i, reason: 'Server starting' },
       { regex: /server stop/i, reason: 'Server stopping' },
@@ -289,6 +340,14 @@ class BedrockServerController {
 
     const important = importantPatterns.some((pattern) => pattern.regex.test(normalized));
     eventBus.emit(SERVER_LOG, { level, message: normalized, important });
+
+    const playerJoinMatch = normalized.match(/Player connected:\s*([^,]+),\s*xuid:\s*([\w-]+)/i);
+    if (playerJoinMatch) {
+      const [, username, xuid] = playerJoinMatch;
+      dbUpdateMinecraftProfileXuid(username, xuid).catch((err) => {
+        console.error(`Failed to update XUID for ${username}: ${err.message}`);
+      });
+    }
 
     if (/server (start|started)/i.test(normalized)) {
       eventBus.emit(SERVER_STATE, { state: 'running', message: 'Bedrock server is online', important: true });
@@ -308,6 +367,8 @@ class BedrockServerController {
         return this.restart();
       case 'stop':
         return this.stop();
+      case 'force-stop':
+        return this.forceStop();
       case 'start':
         return this.start();
       case 'backup':

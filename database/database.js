@@ -43,6 +43,53 @@ async function runMigrations() {
       );
     `);
 
+    await client.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+          FROM information_schema.tables
+          WHERE table_schema = 'public'
+            AND table_name = 'minecraft_profiles'
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM information_schema.tables
+          WHERE table_schema = 'public'
+            AND table_name = 'players'
+        ) THEN
+          ALTER TABLE minecraft_profiles RENAME TO players;
+        END IF;
+
+        IF EXISTS (
+          SELECT 1 FROM pg_class WHERE relname = 'minecraft_profiles_username_lower_idx'
+        ) THEN
+          BEGIN
+            ALTER INDEX minecraft_profiles_username_lower_idx RENAME TO players_username_lower_idx;
+          EXCEPTION WHEN OTHERS THEN
+            NULL;
+          END;
+        END IF;
+      END
+      $$;
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS players (
+        id SERIAL PRIMARY KEY,
+        discord_id TEXT NOT NULL UNIQUE,
+        username TEXT NOT NULL,
+        xuid TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS players_username_lower_idx
+      ON players (LOWER(username));
+    `);
+
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');
@@ -85,10 +132,94 @@ async function upsertPermission({ xuid, permission }) {
   );
 }
 
+async function upsertMinecraftProfile(discordId, username) {
+  if (!discordId || !username) return null;
+  return pool.query(
+    `
+    INSERT INTO players (discord_id, username, updated_at)
+    VALUES ($1, $2, NOW())
+    ON CONFLICT (discord_id)
+    DO UPDATE SET username = EXCLUDED.username, updated_at = NOW()
+    RETURNING *;
+  `,
+    [discordId, username]
+  );
+}
+
+async function getMinecraftProfileByDiscordId(discordId) {
+  if (!discordId) return null;
+  const result = await pool.query('SELECT * FROM players WHERE discord_id = $1;', [discordId]);
+  return result.rows[0] || null;
+}
+
+async function updateMinecraftProfileXuid(username, xuid) {
+  if (!username || !xuid) return null;
+  return pool.query(
+    `
+    UPDATE players
+    SET xuid = $2, updated_at = NOW()
+    WHERE LOWER(username) = LOWER($1)
+    RETURNING *;
+  `,
+    [username, xuid]
+  );
+}
+
+async function getMinecraftProfileByUsername(username) {
+  if (!username) return null;
+  const result = await pool.query('SELECT * FROM players WHERE LOWER(username) = LOWER($1);', [username]);
+  return result.rows[0] || null;
+}
+
+async function getMinecraftProfileByXuid(xuid) {
+  if (!xuid) return null;
+  const result = await pool.query('SELECT * FROM players WHERE xuid = $1;', [xuid]);
+  return result.rows[0] || null;
+}
+
+async function getAllowlistEntries() {
+  const result = await pool.query(
+    'SELECT name, xuid, ignores_player_limit AS "ignoresPlayerLimit" FROM allowlist_entries ORDER BY id;'
+  );
+  return result.rows;
+}
+
+async function getServerPermissions() {
+  const result = await pool.query('SELECT xuid, permission FROM server_permissions ORDER BY id;');
+  return result.rows;
+}
+
+async function getAllowlistEntryByName(name) {
+  if (!name) return null;
+  const result = await pool.query(
+    'SELECT name, xuid, ignores_player_limit AS "ignoresPlayerLimit" FROM allowlist_entries WHERE LOWER(name) = LOWER($1) LIMIT 1;',
+    [name]
+  );
+  return result.rows[0] || null;
+}
+
+async function getAllowlistEntryByXuid(xuid) {
+  if (!xuid) return null;
+  const result = await pool.query(
+    'SELECT name, xuid, ignores_player_limit AS "ignoresPlayerLimit" FROM allowlist_entries WHERE xuid = $1 LIMIT 1;',
+    [xuid]
+  );
+  return result.rows[0] || null;
+}
+
 module.exports = {
   pool,
   runMigrations,
   upsertAllowlistEntry,
   removeAllowlistEntry,
-  upsertPermission
+  upsertPermission,
+  upsertMinecraftProfile,
+  getMinecraftProfileByDiscordId,
+  updateMinecraftProfileXuid,
+  getMinecraftProfileByUsername,
+  getMinecraftProfileByXuid,
+  getAllowlistEntries,
+  getServerPermissions,
+  getAllowlistEntryByName,
+  getAllowlistEntryByXuid
 };
