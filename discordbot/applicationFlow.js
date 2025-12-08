@@ -95,29 +95,17 @@ function buildActionRows(responsesMap, questions, submitLabel = 'Submit for Appr
     .setStyle(ButtonStyle.Success)
     .setDisabled(!hasAllRequiredResponses(responsesMap, questions));
 
-  const deleteButton = new ButtonBuilder()
-    .setCustomId('application-delete-answer')
-    .setLabel('Delete Answer')
-    .setStyle(ButtonStyle.Secondary);
-
   const rows = [buildQuestionSelect(questions, responsesMap)];
-  rows.push(new ActionRowBuilder().addComponents(submitButton, deleteButton));
+  rows.push(new ActionRowBuilder().addComponents(submitButton));
   return rows;
 }
 
 async function sendResponseSummary(interaction, responsesMap, questions, options = {}) {
-  const responsePayload = {
-    content:
-      options.content ||
-      'Your application progress has been updated. Check your DMs for the latest version.',
-    ephemeral: true
-  };
-
-  if (interaction.deferred || interaction.replied) {
-    await interaction.followUp(responsePayload);
-  } else {
-    await interaction.reply(responsePayload);
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferReply({ ephemeral: true }).catch(() => null);
   }
+
+  await interaction.deleteReply().catch(() => null);
 }
 
 async function handleQuestionSelect(interaction, questions, getApplicationResponse) {
@@ -138,17 +126,34 @@ async function handleQuestionSelect(interaction, questions, getApplicationRespon
     .setLabel(truncateLabel(question.label || 'Your answer'))
     .setStyle(TextInputStyle.Paragraph)
     .setPlaceholder(truncateLabel(question.prompt || 'Please share your answer.', 100))
-    .setRequired(true);
+    .setRequired(!existingResponse?.response);
 
   if (existingResponse?.response) {
     responseInput.setValue(existingResponse.response.slice(0, 4000));
   }
 
   modal.addComponents(new ActionRowBuilder().addComponents(responseInput));
+
+  if (existingResponse?.response) {
+    const deleteToggle = new TextInputBuilder()
+      .setCustomId('delete-action')
+      .setLabel('Delete existing answer? (type DELETE)')
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('Leave blank to keep or edit your answer')
+      .setRequired(false);
+
+    modal.addComponents(new ActionRowBuilder().addComponents(deleteToggle));
+  }
   await interaction.showModal(modal);
 }
 
-async function handleModalSubmit(interaction, questions, saveApplicationResponse, getApplicationResponses) {
+async function handleModalSubmit(
+  interaction,
+  questions,
+  saveApplicationResponse,
+  deleteApplicationResponse,
+  getApplicationResponses
+) {
   const [questionId, sourceChannelId, sourceMessageId] = interaction.customId.replace('application-modal-', '').split(':');
   const question = questions.find((q) => q.id === questionId);
   if (!question) {
@@ -156,8 +161,23 @@ async function handleModalSubmit(interaction, questions, saveApplicationResponse
     return;
   }
 
-  const response = interaction.fields.getTextInputValue('response');
-  await saveApplicationResponse(interaction.user.id, question.id, response);
+  const deleteActionField = interaction.fields.fields.find((field) => field.customId === 'delete-action');
+  const deleteAction = (deleteActionField?.value || '').trim().toLowerCase();
+  const response = (interaction.fields.getTextInputValue('response') || '').trim();
+
+  if (deleteAction === 'delete') {
+    await deleteApplicationResponse(interaction.user.id, question.id);
+  } else {
+    if (!response.length) {
+      const message = question.required
+        ? 'Please provide a response or type DELETE to remove your existing answer.'
+        : 'Please provide a response, or type DELETE to clear your existing answer.';
+      await interaction.reply({ content: message, ephemeral: true });
+      return;
+    }
+
+    await saveApplicationResponse(interaction.user.id, question.id, response);
+  }
   const responses = await getApplicationResponses(interaction.user.id);
   const responsesMap = new Map(responses.map((row) => [row.question_id, row.response]));
   if (sourceChannelId && sourceChannelId !== 'none' && sourceMessageId && sourceMessageId !== 'none') {
@@ -320,7 +340,13 @@ async function registerApplicationFlow(client, config, helpers) {
     }
 
     if (interaction.isModalSubmit() && interaction.customId.startsWith('application-modal-')) {
-      await handleModalSubmit(interaction, questions, saveApplicationResponse, getApplicationResponses);
+      await handleModalSubmit(
+        interaction,
+        questions,
+        saveApplicationResponse,
+        deleteApplicationResponse,
+        getApplicationResponses
+      );
       return;
     }
 
@@ -418,8 +444,10 @@ async function registerApplicationFlow(client, config, helpers) {
 
       const member = await interaction.guild.members.fetch(targetUserId).catch(() => null);
       const notice = `Your application was denied. Reason: ${reason}`;
-      if (member) {
-        await member.send(notice).catch(() => null);
+      const targetUser = member?.user || (await interaction.client.users.fetch(targetUserId).catch(() => null));
+      if (targetUser) {
+        await targetUser.send(notice).catch(() => null);
+        await sendApplicationDm(targetUser, questions, responsesMap, 'Resubmit Application');
       }
 
       await sendDeniedOverview(interaction.guild, waitingRoomChannelId, targetUserId, responsesMap, questions, reason);
