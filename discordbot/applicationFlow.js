@@ -52,11 +52,40 @@ function buildProgressEmbed(responsesMap, questions, title = 'Application Progre
   return new EmbedBuilder().setTitle(title).setDescription(description).setColor(0x5865f2);
 }
 
-async function sendWaitingRoomPrompt(channel, user, questions) {
+async function sendWaitingRoomPrompt(channel, user, questions, responsesMap = new Map(), submitLabel = 'Submit for Approval') {
   if (!channel || !channel.isTextBased()) return null;
-  const components = [buildQuestionSelect(questions)];
   const content = `<@${user.id}> Welcome! Please start your application by selecting a question below.`;
-  return channel.send({ content, components, allowedMentions: { users: [user.id] } });
+  const embed = buildProgressEmbed(responsesMap, questions);
+  const components = buildActionRows(responsesMap, questions, submitLabel);
+  return channel.send({ content, embeds: [embed], components, allowedMentions: { users: [user.id] } });
+}
+
+async function sendApplicationDm(user, questions, responsesMap = new Map(), submitLabel = 'Submit for Approval') {
+  if (!user?.createDM) return null;
+  try {
+    const dmChannel = await user.createDM();
+    const embed = buildProgressEmbed(responsesMap, questions);
+    const components = buildActionRows(responsesMap, questions, submitLabel);
+    const content = 'Welcome! Please complete your application using the menu below.';
+    return await dmChannel.send({ content, embeds: [embed], components });
+  } catch (err) {
+    console.error(`Failed to send DM to ${user?.id}:`, err.message);
+    return null;
+  }
+}
+
+async function sendInitialApplicationMessage(user, questions, guild, waitingRoomChannelId) {
+  const responsesMap = new Map();
+  const dmMessage = await sendApplicationDm(user, questions, responsesMap);
+  if (dmMessage) return { location: 'dm', message: dmMessage };
+
+  if (waitingRoomChannelId && guild) {
+    const channel = guild.channels.cache.get(waitingRoomChannelId) || (await guild.channels.fetch(waitingRoomChannelId).catch(() => null));
+    const fallbackMessage = await sendWaitingRoomPrompt(channel, user, questions, responsesMap);
+    if (fallbackMessage) return { location: 'waiting-room', message: fallbackMessage };
+  }
+
+  return null;
 }
 
 function buildActionRows(responsesMap, questions, submitLabel = 'Submit for Approval') {
@@ -77,14 +106,10 @@ function buildActionRows(responsesMap, questions, submitLabel = 'Submit for Appr
 }
 
 async function sendResponseSummary(interaction, responsesMap, questions, options = {}) {
-  const components = buildActionRows(responsesMap, questions, options.submitLabel);
-
   const responsePayload = {
     content:
       options.content ||
-      'Here is your application progress. You can continue editing your answers using the menu below.',
-    embeds: [buildProgressEmbed(responsesMap, questions)],
-    components,
+      'Your application progress has been updated. Check your DMs for the latest version.',
     ephemeral: true
   };
 
@@ -229,10 +254,7 @@ async function registerApplicationFlow(client, config, helpers) {
   const questions = config.questions || [];
 
   client.on('guildMemberAdd', async (member) => {
-    if (!waitingRoomChannelId) return;
-    const channel = member.guild.channels.cache.get(waitingRoomChannelId) || (await member.guild.channels.fetch(waitingRoomChannelId).catch(() => null));
-    if (!channel) return;
-    await sendWaitingRoomPrompt(channel, member.user, questions);
+    await sendInitialApplicationMessage(member.user, questions, member.guild, waitingRoomChannelId);
   });
 
   client.on('interactionCreate', async (interaction) => {
@@ -413,5 +435,7 @@ module.exports = {
   buildQuestionSelect,
   formatResponses,
   hasAllRequiredResponses,
-  buildResponseMap
+  buildResponseMap,
+  sendInitialApplicationMessage,
+  sendWaitingRoomPrompt
 };
