@@ -9,9 +9,25 @@ const {
   EmbedBuilder
 } = require('discord.js');
 
+const RESPONSE_ACTION_PREFIX = 'app-resp';
+
 function truncateLabel(label, max = 45) {
   const safeLabel = label || '';
   return safeLabel.length > max ? `${safeLabel.slice(0, Math.max(0, max - 3))}...` : safeLabel;
+}
+
+function buildResponseActionCustomId(questionId, sourceChannelId, sourceMessageId) {
+  const customId = `${RESPONSE_ACTION_PREFIX}:${questionId}:${sourceChannelId || 'none'}:${sourceMessageId || 'none'}`;
+  if (customId.length > 100) {
+    return `${RESPONSE_ACTION_PREFIX}:${questionId}:${(sourceChannelId || 'none').slice(-10)}:${(sourceMessageId || 'none').slice(-10)}`;
+  }
+  return customId;
+}
+
+function findSubmitLabelFromMessage(message) {
+  return message?.components
+    ?.flatMap((row) => row.components || [])
+    .find((component) => component.customId === 'application-submit')?.label;
 }
 
 function buildQuestionSelect(questions, responsesMap = new Map(), customId = 'application-question-select') {
@@ -128,9 +144,7 @@ async function handleQuestionSelect(interaction, questions, getApplicationRespon
     const actionSelect = new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId(
-          `application-response-action:${question.id}:${interaction.message?.channelId || 'none'}:${
-            interaction.message?.id || 'none'
-          }:${encodeURIComponent(submitLabelFromMessage || '')}`
+          buildResponseActionCustomId(question.id, interaction.message?.channelId, interaction.message?.id)
         )
         .setPlaceholder('Edit or delete your answer')
         .addOptions(
@@ -233,14 +247,24 @@ function buildResponseMap(responses) {
   return new Map(responses.map((row) => [row.question_id, row.response]));
 }
 
-async function refreshApplicationMessage(client, channelId, messageId, userId, responsesMap, questions, submitLabel = 'Submit for Approval') {
+async function refreshApplicationMessage(
+  client,
+  channelId,
+  messageId,
+  userId,
+  responsesMap,
+  questions,
+  submitLabel
+) {
   if (!channelId || !messageId) return;
   const channel = client.channels.cache.get(channelId) || (await client.channels.fetch(channelId).catch(() => null));
   if (!channel || !channel.isTextBased()) return;
   const message = await channel.messages.fetch(messageId).catch(() => null);
   if (!message || !message.editable) return;
+  const resolvedSubmitLabel =
+    submitLabel || findSubmitLabelFromMessage(message) || 'Submit for Approval';
   const embed = buildProgressEmbed(responsesMap, questions);
-  const components = buildActionRows(responsesMap, questions, submitLabel);
+  const components = buildActionRows(responsesMap, questions, resolvedSubmitLabel);
 
   await message.edit({ content: message.content || `<@${userId}>`, embeds: [embed], components });
 }
@@ -287,7 +311,10 @@ async function registerApplicationFlow(client, config, helpers) {
       return;
     }
 
-    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('application-response-action')) {
+    if (
+      interaction.isStringSelectMenu() &&
+      (interaction.customId.startsWith(RESPONSE_ACTION_PREFIX) || interaction.customId.startsWith('application-response-action'))
+    ) {
       const [, questionId, sourceChannelId, sourceMessageId, encodedLabel] = interaction.customId.split(':');
       const submitLabel = encodedLabel ? decodeURIComponent(encodedLabel) : undefined;
       const action = interaction.values?.[0];
