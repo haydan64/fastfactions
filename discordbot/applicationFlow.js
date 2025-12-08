@@ -17,7 +17,7 @@ function truncateLabel(label, max = 45) {
 function buildQuestionSelect(questions, responsesMap = new Map(), customId = 'application-question-select') {
   const options = questions.map((question) => {
     const answered = Boolean((responsesMap.get(question.id) || '').trim());
-    const indicator = answered ? '✅' : '⬜';
+    const indicator = answered ? ':white_check_mark:' : ':white_square_button:';
     return {
       label: truncateLabel(`${indicator} ${question.label || question.prompt || 'Question'}`),
       description: truncateLabel(question.prompt || '', 100),
@@ -38,7 +38,10 @@ function formatResponses(responsesMap, questions) {
   return questions
     .map((question, index) => {
       const answer = responsesMap.get(question.id);
-      return `${index + 1}. ${question.label || question.prompt}\n:large_blue_diamond: ${answer || '*No response yet*'}`;
+      const label = question.label || question.prompt || 'Question';
+      const questionTitle = question.prompt && question.label ? `${question.label} - ${question.prompt}` : label;
+      const indicator = (answer || '').trim() ? ':white_check_mark:' : ':white_square_button:';
+      return `${index + 1}. ${indicator} ${questionTitle}\n:large_blue_diamond: ${answer || '*No response yet*'}`;
     })
     .join('\n\n');
 }
@@ -117,33 +120,41 @@ async function handleQuestionSelect(interaction, questions, getApplicationRespon
   }
 
   const existingResponse = await getApplicationResponse(interaction.user.id, question.id);
+  const submitLabelFromMessage = interaction.message?.components
+    ?.flatMap((row) => row.components || [])
+    .find((component) => component.customId === 'application-submit')?.label;
+
+  if (existingResponse?.response) {
+    const actionSelect = new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId(
+          `application-response-action:${question.id}:${interaction.message?.channelId || 'none'}:${
+            interaction.message?.id || 'none'
+          }:${encodeURIComponent(submitLabelFromMessage || '')}`
+        )
+        .setPlaceholder('Edit or delete your answer')
+        .addOptions(
+          { label: 'Edit answer', value: 'edit', description: 'Update your existing response' },
+          { label: 'Delete answer', value: 'delete', description: 'Remove your current response' }
+        )
+    );
+
+    await interaction.reply({ content: 'What would you like to do with this answer?', components: [actionSelect], ephemeral: true });
+    return;
+  }
+
   const modal = new ModalBuilder()
     .setCustomId(`application-modal-${question.id}:${interaction.message?.channelId || 'none'}:${interaction.message?.id || 'none'}`)
     .setTitle(truncateLabel(question.label || 'Application Question'));
 
   const responseInput = new TextInputBuilder()
     .setCustomId('response')
-    .setLabel(truncateLabel(question.label || 'Your answer'))
+    .setLabel(truncateLabel(question.prompt || 'Your answer'))
     .setStyle(TextInputStyle.Paragraph)
     .setPlaceholder(truncateLabel(question.prompt || 'Please share your answer.', 100))
-    .setRequired(!existingResponse?.response);
-
-  if (existingResponse?.response) {
-    responseInput.setValue(existingResponse.response.slice(0, 4000));
-  }
+    .setRequired(true);
 
   modal.addComponents(new ActionRowBuilder().addComponents(responseInput));
-
-  if (existingResponse?.response) {
-    const deleteToggle = new TextInputBuilder()
-      .setCustomId('delete-action')
-      .setLabel('Delete existing answer? (type DELETE)')
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder('Leave blank to keep or edit your answer')
-      .setRequired(false);
-
-    modal.addComponents(new ActionRowBuilder().addComponents(deleteToggle));
-  }
   await interaction.showModal(modal);
 }
 
@@ -151,7 +162,6 @@ async function handleModalSubmit(
   interaction,
   questions,
   saveApplicationResponse,
-  deleteApplicationResponse,
   getApplicationResponses
 ) {
   const [questionId, sourceChannelId, sourceMessageId] = interaction.customId.replace('application-modal-', '').split(':');
@@ -161,23 +171,17 @@ async function handleModalSubmit(
     return;
   }
 
-  const deleteActionField = interaction.fields.fields.find((field) => field.customId === 'delete-action');
-  const deleteAction = (deleteActionField?.value || '').trim().toLowerCase();
   const response = (interaction.fields.getTextInputValue('response') || '').trim();
 
-  if (deleteAction === 'delete') {
-    await deleteApplicationResponse(interaction.user.id, question.id);
-  } else {
-    if (!response.length) {
-      const message = question.required
-        ? 'Please provide a response or type DELETE to remove your existing answer.'
-        : 'Please provide a response, or type DELETE to clear your existing answer.';
-      await interaction.reply({ content: message, ephemeral: true });
-      return;
-    }
-
-    await saveApplicationResponse(interaction.user.id, question.id, response);
+  if (!response.length) {
+    const message = question.required
+      ? 'Please provide a response. Use the delete option from the action menu if you want to clear an existing answer.'
+      : 'Please provide a response, or choose the delete option from the action menu to remove your answer.';
+    await interaction.reply({ content: message, ephemeral: true });
+    return;
   }
+
+  await saveApplicationResponse(interaction.user.id, question.id, response);
   const responses = await getApplicationResponses(interaction.user.id);
   const responsesMap = new Map(responses.map((row) => [row.question_id, row.response]));
   if (sourceChannelId && sourceChannelId !== 'none' && sourceMessageId && sourceMessageId !== 'none') {
@@ -283,6 +287,62 @@ async function registerApplicationFlow(client, config, helpers) {
       return;
     }
 
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('application-response-action')) {
+      const [, questionId, sourceChannelId, sourceMessageId, encodedLabel] = interaction.customId.split(':');
+      const submitLabel = encodedLabel ? decodeURIComponent(encodedLabel) : undefined;
+      const action = interaction.values?.[0];
+      const question = questions.find((q) => q.id === questionId);
+
+      if (!question) {
+        await interaction.reply({ content: 'That question is no longer available.', ephemeral: true });
+        return;
+      }
+
+      if (action === 'delete') {
+        await deleteApplicationResponse(interaction.user.id, question.id);
+        const responses = await getApplicationResponses(interaction.user.id);
+        const responsesMap = buildResponseMap(responses);
+
+        if (sourceChannelId && sourceChannelId !== 'none' && sourceMessageId && sourceMessageId !== 'none') {
+          await refreshApplicationMessage(
+            interaction.client,
+            sourceChannelId,
+            sourceMessageId,
+            interaction.user.id,
+            responsesMap,
+            questions,
+            submitLabel || undefined
+          );
+        }
+
+        await sendResponseSummary(interaction, responsesMap, questions, { submitLabel });
+        return;
+      }
+
+      const existingResponse = await getApplicationResponse(interaction.user.id, question.id);
+
+      const modal = new ModalBuilder()
+        .setCustomId(
+          `application-modal-${question.id}:${sourceChannelId || 'none'}:${sourceMessageId || 'none'}`
+        )
+        .setTitle(truncateLabel(question.label || 'Application Question'));
+
+      const responseInput = new TextInputBuilder()
+        .setCustomId('response')
+        .setLabel(truncateLabel(question.prompt || 'Your answer'))
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder(truncateLabel(question.prompt || 'Please share your answer.', 100))
+        .setRequired(true);
+
+      if (existingResponse?.response) {
+        responseInput.setValue(existingResponse.response.slice(0, 4000));
+      }
+
+      modal.addComponents(new ActionRowBuilder().addComponents(responseInput));
+      await interaction.showModal(modal);
+      return;
+    }
+
     if (interaction.isButton() && interaction.customId === 'application-delete-answer') {
       const responses = await getApplicationResponses(interaction.user.id);
       const responseMap = buildResponseMap(responses);
@@ -344,7 +404,6 @@ async function registerApplicationFlow(client, config, helpers) {
         interaction,
         questions,
         saveApplicationResponse,
-        deleteApplicationResponse,
         getApplicationResponses
       );
       return;
