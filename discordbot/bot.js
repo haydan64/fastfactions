@@ -5,9 +5,16 @@ const {
   upsertMinecraftProfile,
   getMinecraftProfileByDiscordId,
   getMinecraftProfileByUsername,
-  getAllowlistEntryByName
+  getAllowlistEntryByName,
+  saveApplicationResponse,
+  getApplicationResponses,
+  getApplicationResponse,
+  setApplicationStatus,
+  getApplication
 } = require('../database/database');
 const { loadCommands } = require('./loadCommands');
+const { registerApplicationFlow } = require('./applicationFlow');
+const botConfig = require('./botConfig.json');
 
 const {
   EVENTS: { SERVER_LOG, SERVER_STATE }
@@ -17,6 +24,11 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const SERVER_LOG_CHANNEL = '1441903391830970489';
 const DISCORD_LOG_CHANNEL = '757597730666315837';
+const JOIN_LEAVE_CHANNEL = botConfig?.channels?.joinLeave;
+const WAITING_ROOM_CHANNEL = botConfig?.channels?.waitingRoom;
+const APPLICATIONS_CHANNEL = botConfig?.channels?.applications;
+const OUTSIDER_ROLE_ID = botConfig?.roles?.outsider;
+const LIEGE_ROLE_ID = botConfig?.roles?.liege;
 const ROLE_IDS = {
   DEVELOPER: '804258017670856705',
   ROYALTY: '757463635718176819',
@@ -107,14 +119,44 @@ function registerDiscordAuditHandlers(client) {
     sendToChannel(client, DISCORD_LOG_CHANNEL, { embeds: [embed] });
   });
 
-  client.on('guildMemberAdd', (member) => {
+  client.on('guildMemberAdd', async (member) => {
     const embed = buildAuditEmbed('Member Joined', `${formatUser(member)} joined the server.`, 0x5cb85c);
+    if (OUTSIDER_ROLE_ID && member.guild.roles.cache.has(OUTSIDER_ROLE_ID)) {
+      await member.roles.add(OUTSIDER_ROLE_ID).catch(() => null);
+    }
+
+    const joinEmbed = new EmbedBuilder()
+      .setTitle('Player Joined')
+      .setDescription(`<@${member.id}> has joined the realm.`)
+      .setColor(0x5cb85c)
+      .setThumbnail(member.user.displayAvatarURL({ size: 256 }));
+
     sendToChannel(member.client, DISCORD_LOG_CHANNEL, { embeds: [embed] });
+    if (JOIN_LEAVE_CHANNEL) {
+      sendToChannel(member.client, JOIN_LEAVE_CHANNEL, {
+        content: `<@${member.id}>`,
+        embeds: [joinEmbed],
+        allowedMentions: { users: [member.id] }
+      });
+    }
   });
 
   client.on('guildMemberRemove', (member) => {
     const embed = buildAuditEmbed('Member Left', `${formatUser(member)} left the server.`, 0xd9534f);
+    const leaveEmbed = new EmbedBuilder()
+      .setTitle('Player Left')
+      .setDescription(`<@${member.id}> has left the realm.`)
+      .setColor(0xd9534f)
+      .setThumbnail(member.user.displayAvatarURL({ size: 256 }));
+
     sendToChannel(member.client, DISCORD_LOG_CHANNEL, { embeds: [embed] });
+    if (JOIN_LEAVE_CHANNEL) {
+      sendToChannel(member.client, JOIN_LEAVE_CHANNEL, {
+        content: `<@${member.id}>`,
+        embeds: [leaveEmbed],
+        allowedMentions: { users: [member.id] }
+      });
+    }
   });
 
   client.on('guildMemberUpdate', (oldMember, newMember) => {
@@ -164,7 +206,15 @@ function buildCommandContext() {
     upsertMinecraftProfile,
     getMinecraftProfileByDiscordId,
     getMinecraftProfileByUsername,
-    getAllowlistEntryByName
+    getAllowlistEntryByName,
+    saveApplicationResponse,
+    getApplicationResponses,
+    getApplicationResponse,
+    setApplicationStatus,
+    getApplication,
+    applicationQuestions: botConfig?.questions,
+    applicationRoles: botConfig?.roles,
+    applicationChannels: botConfig?.channels
   };
 }
 
@@ -207,6 +257,20 @@ module.exports = function createDiscordBot() {
 
   registerCommandHandlers(client, commands);
   registerDiscordAuditHandlers(client);
+  registerApplicationFlow(client, {
+    waitingRoomChannelId: WAITING_ROOM_CHANNEL,
+    applicationsChannelId: APPLICATIONS_CHANNEL,
+    questions: botConfig.questions
+  }, {
+    saveApplicationResponse,
+    getApplicationResponses,
+    getApplicationResponse,
+    setApplicationStatus,
+    sendToChannel,
+    ensureRole,
+    roleIds: ROLE_IDS,
+    rolesConfig: botConfig.roles
+  });
   registerServerEventHandlers(client);
 
   return {
