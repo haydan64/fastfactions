@@ -263,6 +263,15 @@ async function getApplicationResponse(discordId, questionId) {
   return result.rows[0] || null;
 }
 
+async function deleteApplicationResponse(discordId, questionId) {
+  if (!discordId || !questionId) return null;
+  const result = await pool.query(
+    `DELETE FROM player_application_responses WHERE discord_id = $1 AND question_id = $2 RETURNING *;`,
+    [discordId, questionId]
+  );
+  return result.rows[0] || null;
+}
+
 async function setApplicationStatus(discordId, status, reviewerId, denialReason) {
   if (!discordId || !status) return null;
   const timestamps = {
@@ -298,6 +307,28 @@ async function getApplication(discordId) {
   return result.rows[0] || null;
 }
 
+async function resetApplication(discordId) {
+  if (!discordId) return null;
+  await pool.query(`DELETE FROM player_application_responses WHERE discord_id = $1;`, [discordId]);
+  const result = await pool.query(
+    `
+    INSERT INTO player_applications (discord_id, status, submitted_at, reviewed_at, reviewer_id, denial_reason, updated_at)
+    VALUES ($1, 'draft', NULL, NULL, NULL, NULL, NOW())
+    ON CONFLICT (discord_id)
+    DO UPDATE SET
+      status = 'draft',
+      submitted_at = NULL,
+      reviewed_at = NULL,
+      reviewer_id = NULL,
+      denial_reason = NULL,
+      updated_at = NOW()
+    RETURNING *;
+  `,
+    [discordId]
+  );
+  return result.rows[0] || null;
+}
+
 module.exports = {
   pool,
   runMigrations,
@@ -315,6 +346,8 @@ module.exports = {
   saveApplicationResponse,
   getApplicationResponses,
   getApplicationResponse,
+  deleteApplicationResponse,
   setApplicationStatus,
-  getApplication
+  getApplication,
+  resetApplication
 };
