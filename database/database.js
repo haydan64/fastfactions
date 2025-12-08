@@ -90,6 +90,32 @@ async function runMigrations() {
       ON players (LOWER(username));
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS player_applications (
+        id SERIAL PRIMARY KEY,
+        discord_id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'submitted', 'accepted', 'denied')),
+        submitted_at TIMESTAMPTZ,
+        reviewed_at TIMESTAMPTZ,
+        reviewer_id TEXT,
+        denial_reason TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS player_application_responses (
+        id SERIAL PRIMARY KEY,
+        discord_id TEXT NOT NULL,
+        question_id TEXT NOT NULL,
+        response TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE (discord_id, question_id)
+      );
+    `);
+
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');
@@ -189,6 +215,89 @@ async function getServerPermissions() {
   return result.rows;
 }
 
+async function ensureApplication(discordId) {
+  if (!discordId) return null;
+  const result = await pool.query(
+    `
+    INSERT INTO player_applications (discord_id, updated_at)
+    VALUES ($1, NOW())
+    ON CONFLICT (discord_id) DO UPDATE SET updated_at = NOW()
+    RETURNING *;
+  `,
+    [discordId]
+  );
+  return result.rows[0] || null;
+}
+
+async function saveApplicationResponse(discordId, questionId, response) {
+  if (!discordId || !questionId || typeof response !== 'string') return null;
+  await ensureApplication(discordId);
+  const result = await pool.query(
+    `
+    INSERT INTO player_application_responses (discord_id, question_id, response, updated_at)
+    VALUES ($1, $2, $3, NOW())
+    ON CONFLICT (discord_id, question_id)
+    DO UPDATE SET response = EXCLUDED.response, updated_at = NOW()
+    RETURNING *;
+  `,
+    [discordId, questionId, response]
+  );
+  return result.rows[0] || null;
+}
+
+async function getApplicationResponses(discordId) {
+  if (!discordId) return [];
+  const result = await pool.query(
+    `SELECT question_id, response, updated_at FROM player_application_responses WHERE discord_id = $1;`,
+    [discordId]
+  );
+  return result.rows;
+}
+
+async function getApplicationResponse(discordId, questionId) {
+  if (!discordId || !questionId) return null;
+  const result = await pool.query(
+    `SELECT * FROM player_application_responses WHERE discord_id = $1 AND question_id = $2;`,
+    [discordId, questionId]
+  );
+  return result.rows[0] || null;
+}
+
+async function setApplicationStatus(discordId, status, reviewerId, denialReason) {
+  if (!discordId || !status) return null;
+  const timestamps = {
+    submitted_at: status === 'submitted' ? 'NOW()' : null,
+    reviewed_at: ['accepted', 'denied'].includes(status) ? 'NOW()' : null
+  };
+
+  const submittedAtSql = timestamps.submitted_at ? 'NOW()' : 'NULL';
+  const reviewedAtSql = timestamps.reviewed_at ? 'NOW()' : 'NULL';
+
+  const result = await pool.query(
+    `
+    INSERT INTO player_applications (discord_id, status, submitted_at, reviewed_at, reviewer_id, denial_reason, updated_at)
+    VALUES ($1, $2, ${submittedAtSql}, ${reviewedAtSql}, $3, $4, NOW())
+    ON CONFLICT (discord_id)
+    DO UPDATE SET
+      status = EXCLUDED.status,
+      submitted_at = CASE WHEN EXCLUDED.status = 'submitted' THEN NOW() ELSE player_applications.submitted_at END,
+      reviewed_at = CASE WHEN EXCLUDED.status IN ('accepted', 'denied') THEN NOW() ELSE player_applications.reviewed_at END,
+      reviewer_id = EXCLUDED.reviewer_id,
+      denial_reason = EXCLUDED.denial_reason,
+      updated_at = NOW()
+    RETURNING *;
+  `,
+    [discordId, status, reviewerId || null, denialReason || null]
+  );
+  return result.rows[0] || null;
+}
+
+async function getApplication(discordId) {
+  if (!discordId) return null;
+  const result = await pool.query('SELECT * FROM player_applications WHERE discord_id = $1;', [discordId]);
+  return result.rows[0] || null;
+}
+
 module.exports = {
   pool,
   runMigrations,
@@ -201,5 +310,11 @@ module.exports = {
   getMinecraftProfileByUsername,
   getAllowlistEntries,
   getAllowlistEntryByName,
-  getServerPermissions
+  getServerPermissions,
+  ensureApplication,
+  saveApplicationResponse,
+  getApplicationResponses,
+  getApplicationResponse,
+  setApplicationStatus,
+  getApplication
 };

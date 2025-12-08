@@ -1,0 +1,67 @@
+{
+  "channels": {
+    "joinLeave": "757586761428762745",
+    "waitingRoom": "790378409024028702",
+    "applications": "757581056470679672"
+  },
+  "roles": {
+    "outsider": "757613578638590013",
+    "liege": "757614906051919974"
+  },
+  "questions": [
+    {
+      "id": "f5fdbf6c-3b2a-4a75-9d2f-e35a2d30e22d",
+      "label": "Question 1",
+      "prompt": "What is your ingame name. (Please only enter your username, as it is in minecraft so that you will be whitelisted automatically upon acceptance of this Application.)",
+      "required": true
+    },
+    {
+      "id": "a7e1a4bb-d10d-4d4b-b936-3d7649c58e33",
+      "label": "Question 2",
+      "prompt": "What is your age?",
+      "required": true
+    },
+    {
+      "id": "b558660c-7504-4f3d-9786-655a0c0ab79d",
+      "label": "Question 3",
+      "prompt": "What platform do you usually play on? Like PC, Xbox Play Station, Phone?",
+      "required": true
+    },
+    {
+      "id": "8f7e54e3-2598-492b-92f7-5d21254c2721",
+      "label": "Question 4",
+      "prompt": "Where did you hear about this server?",
+      "required": true
+    },
+    {
+      "id": "e1df5a5e-b5ec-4c88-8b07-c63e88e7ad02",
+      "label": "Question 5",
+      "prompt": "Have you ever been banned from any server or realm? If so, please explain.",
+      "required": true
+    },
+    {
+      "id": "65d47d8f-02f5-4028-a120-9f3b7aaf8c2d",
+      "label": "Question 6",
+      "prompt": "Have you ever been a staff member on discord or on a realm? If so, how long and what did you do.",
+      "required": true
+    },
+    {
+      "id": "4fa0c463-4db7-4b9e-9f5f-27cf2289f078",
+      "label": "Question 7",
+      "prompt": "List the factions and the most important rule.",
+      "required": true
+    },
+    {
+      "id": "0b722279-18ca-48aa-9c85-6c8550d0f5f5",
+      "label": "Question 8",
+      "prompt": "How do you find the server information once your application is approved? Be Specific.",
+      "required": true
+    },
+    {
+      "id": "2d11053a-6f54-4f9d-bf15-a0802530ba94",
+      "label": "Question 9",
+      "prompt": "List at least 2 methods to gain silver and how can you spend it.",
+      "required": true
+    }
+  ]
+}
