@@ -17,7 +17,7 @@ function truncateLabel(label, max = 45) {
 function buildQuestionSelect(questions, responsesMap = new Map(), customId = 'application-question-select') {
   const options = questions.map((question) => {
     const answered = Boolean((responsesMap.get(question.id) || '').trim());
-    const indicator = answered ? ':white_check_mark:' : ':white_square_button:';
+    const indicator = answered ? '✅' : '⬜';
     return {
       label: truncateLabel(`${indicator} ${question.label || question.prompt || 'Question'}`),
       description: truncateLabel(question.prompt || '', 100),
@@ -40,8 +40,8 @@ function formatResponses(responsesMap, questions) {
       const answer = responsesMap.get(question.id);
       const label = question.label || question.prompt || 'Question';
       const questionTitle = question.prompt && question.label ? `${question.label} - ${question.prompt}` : label;
-      const indicator = (answer || '').trim() ? ':white_check_mark:' : ':white_square_button:';
-      return `${index + 1}. ${indicator} ${questionTitle}\n:large_blue_diamond: ${answer || '*No response yet*'}`;
+      const indicator = (answer || '').trim() ? '✅' : '⬜';
+      return `**${index + 1}. ${questionTitle}**${indicator} ${answer || '*No response yet*'}`;
     })
     .join('\n\n');
 }
