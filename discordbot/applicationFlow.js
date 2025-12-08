@@ -9,21 +9,26 @@ const {
   EmbedBuilder
 } = require('discord.js');
 
-function truncateLabel(label) {
-  return label.length > 45 ? `${label.slice(0, 42)}...` : label;
+function truncateLabel(label, max = 45) {
+  const safeLabel = label || '';
+  return safeLabel.length > max ? `${safeLabel.slice(0, Math.max(0, max - 3))}...` : safeLabel;
 }
 
-function buildQuestionSelect(questions) {
-  const options = questions.map((question) => ({
-    label: truncateLabel(question.prompt),
-    description: question.label,
-    value: question.id
-  }));
+function buildQuestionSelect(questions, responsesMap = new Map(), customId = 'application-question-select') {
+  const options = questions.map((question) => {
+    const answered = Boolean((responsesMap.get(question.id) || '').trim());
+    const indicator = answered ? '✅' : '⬜';
+    return {
+      label: truncateLabel(`${indicator} ${question.label || question.prompt || 'Question'}`),
+      description: truncateLabel(question.prompt || '', 100),
+      value: question.id
+    };
+  });
 
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
-      .setCustomId('application-question-select')
-      .setPlaceholder('Select a question to answer')
+      .setCustomId(customId)
+      .setPlaceholder('Select a question to answer or edit')
       .addOptions(options)
   );
 }
@@ -33,13 +38,18 @@ function formatResponses(responsesMap, questions) {
   return questions
     .map((question, index) => {
       const answer = responsesMap.get(question.id);
-      return `${index + 1}. ${question.prompt}\n➤ ${answer || '*No response yet*'}`;
+      return `${index + 1}. ${question.label || question.prompt}\n:large_blue_diamond: ${answer || '*No response yet*'}`;
     })
     .join('\n\n');
 }
 
 function hasAllRequiredResponses(responsesMap, questions) {
   return questions.every((question) => !question.required || (responsesMap.get(question.id) || '').trim().length);
+}
+
+function buildProgressEmbed(responsesMap, questions, title = 'Application Progress') {
+  const description = formatResponses(responsesMap, questions);
+  return new EmbedBuilder().setTitle(title).setDescription(description).setColor(0x5865f2);
 }
 
 async function sendWaitingRoomPrompt(channel, user, questions) {
@@ -49,25 +59,40 @@ async function sendWaitingRoomPrompt(channel, user, questions) {
   return channel.send({ content, components, allowedMentions: { users: [user.id] } });
 }
 
-function buildSubmitRow(responsesMap, questions) {
-  if (!hasAllRequiredResponses(responsesMap, questions)) return null;
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('application-submit').setLabel('Submit for Approval').setStyle(ButtonStyle.Success)
-  );
+function buildActionRows(responsesMap, questions, submitLabel = 'Submit for Approval') {
+  const submitButton = new ButtonBuilder()
+    .setCustomId('application-submit')
+    .setLabel(submitLabel)
+    .setStyle(ButtonStyle.Success)
+    .setDisabled(!hasAllRequiredResponses(responsesMap, questions));
+
+  const deleteButton = new ButtonBuilder()
+    .setCustomId('application-delete-answer')
+    .setLabel('Delete Answer')
+    .setStyle(ButtonStyle.Secondary);
+
+  const rows = [buildQuestionSelect(questions, responsesMap)];
+  rows.push(new ActionRowBuilder().addComponents(submitButton, deleteButton));
+  return rows;
 }
 
-async function sendResponseSummary(interaction, responsesMap, questions) {
-  const description = formatResponses(responsesMap, questions);
-  const submitRow = buildSubmitRow(responsesMap, questions);
-  const components = [buildQuestionSelect(questions)];
-  if (submitRow) components.push(submitRow);
+async function sendResponseSummary(interaction, responsesMap, questions, options = {}) {
+  const components = buildActionRows(responsesMap, questions, options.submitLabel);
 
-  await interaction.reply({
-    content: 'Here is your application progress. You can continue editing your answers using the menu below.',
-    embeds: [new EmbedBuilder().setTitle('Application Progress').setDescription(description).setColor(0x5865f2)],
+  const responsePayload = {
+    content:
+      options.content ||
+      'Here is your application progress. You can continue editing your answers using the menu below.',
+    embeds: [buildProgressEmbed(responsesMap, questions)],
     components,
     ephemeral: true
-  });
+  };
+
+  if (interaction.deferred || interaction.replied) {
+    await interaction.followUp(responsePayload);
+  } else {
+    await interaction.reply(responsePayload);
+  }
 }
 
 async function handleQuestionSelect(interaction, questions, getApplicationResponse) {
@@ -80,13 +105,14 @@ async function handleQuestionSelect(interaction, questions, getApplicationRespon
 
   const existingResponse = await getApplicationResponse(interaction.user.id, question.id);
   const modal = new ModalBuilder()
-    .setCustomId(`application-modal-${question.id}`)
-    .setTitle(truncateLabel(question.prompt) || 'Application Question');
+    .setCustomId(`application-modal-${question.id}:${interaction.message?.channelId || 'none'}:${interaction.message?.id || 'none'}`)
+    .setTitle(truncateLabel(question.label || 'Application Question'));
 
   const responseInput = new TextInputBuilder()
     .setCustomId('response')
-    .setLabel('Your answer')
+    .setLabel(truncateLabel(question.label || 'Your answer'))
     .setStyle(TextInputStyle.Paragraph)
+    .setPlaceholder(truncateLabel(question.prompt || 'Please share your answer.', 100))
     .setRequired(true);
 
   if (existingResponse?.response) {
@@ -98,7 +124,7 @@ async function handleQuestionSelect(interaction, questions, getApplicationRespon
 }
 
 async function handleModalSubmit(interaction, questions, saveApplicationResponse, getApplicationResponses) {
-  const questionId = interaction.customId.replace('application-modal-', '');
+  const [questionId, sourceChannelId, sourceMessageId] = interaction.customId.replace('application-modal-', '').split(':');
   const question = questions.find((q) => q.id === questionId);
   if (!question) {
     await interaction.reply({ content: 'That question is no longer available.', ephemeral: true });
@@ -109,6 +135,9 @@ async function handleModalSubmit(interaction, questions, saveApplicationResponse
   await saveApplicationResponse(interaction.user.id, question.id, response);
   const responses = await getApplicationResponses(interaction.user.id);
   const responsesMap = new Map(responses.map((row) => [row.question_id, row.response]));
+  if (sourceChannelId && sourceChannelId !== 'none' && sourceMessageId && sourceMessageId !== 'none') {
+    await refreshApplicationMessage(interaction.client, sourceChannelId, sourceMessageId, interaction.user.id, responsesMap, questions);
+  }
   await sendResponseSummary(interaction, responsesMap, questions);
 }
 
@@ -155,12 +184,42 @@ function buildResponseMap(responses) {
   return new Map(responses.map((row) => [row.question_id, row.response]));
 }
 
+async function refreshApplicationMessage(client, channelId, messageId, userId, responsesMap, questions, submitLabel = 'Submit for Approval') {
+  if (!channelId || !messageId) return;
+  const channel = client.channels.cache.get(channelId) || (await client.channels.fetch(channelId).catch(() => null));
+  if (!channel || !channel.isTextBased()) return;
+  const message = await channel.messages.fetch(messageId).catch(() => null);
+  if (!message || !message.editable) return;
+  const embed = buildProgressEmbed(responsesMap, questions);
+  const components = buildActionRows(responsesMap, questions, submitLabel);
+
+  await message.edit({ content: message.content || `<@${userId}>`, embeds: [embed], components });
+}
+
+async function sendDeniedOverview(guild, waitingRoomChannelId, targetUserId, responsesMap, questions, reason) {
+  if (!waitingRoomChannelId || !guild) return;
+  const channel = guild.channels.cache.get(waitingRoomChannelId) || (await guild.channels.fetch(waitingRoomChannelId).catch(() => null));
+  if (!channel || !channel.isTextBased()) return;
+
+  const embed = buildProgressEmbed(responsesMap, questions, 'Application Denied');
+  embed.addFields({ name: 'Status', value: `Denied reason: ${reason || 'No reason provided.'}` });
+
+  const components = buildActionRows(responsesMap, questions, 'Resubmit Application');
+  await channel.send({
+    content: `<@${targetUserId}> Your application was denied. You can edit your responses below and resubmit.`,
+    embeds: [embed],
+    components,
+    allowedMentions: { users: [targetUserId] }
+  });
+}
+
 async function registerApplicationFlow(client, config, helpers) {
   const { waitingRoomChannelId, applicationsChannelId } = config;
   const {
     saveApplicationResponse,
     getApplicationResponses,
     getApplicationResponse,
+    deleteApplicationResponse,
     setApplicationStatus,
     sendToChannel,
     ensureRole,
@@ -179,6 +238,62 @@ async function registerApplicationFlow(client, config, helpers) {
   client.on('interactionCreate', async (interaction) => {
     if (interaction.isStringSelectMenu() && interaction.customId === 'application-question-select') {
       await handleQuestionSelect(interaction, questions, getApplicationResponse);
+      return;
+    }
+
+    if (interaction.isButton() && interaction.customId === 'application-delete-answer') {
+      const responses = await getApplicationResponses(interaction.user.id);
+      const responseMap = buildResponseMap(responses);
+      const answeredQuestions = questions.filter((q) => (responseMap.get(q.id) || '').trim());
+      if (!answeredQuestions.length) {
+        await interaction.reply({ content: 'You have no answers to delete yet.', ephemeral: true });
+        return;
+      }
+
+      const submitLabelFromMessage = interaction.message?.components
+        ?.flatMap((row) => row.components || [])
+        .find((component) => component.customId === 'application-submit')?.label;
+
+      const selectRow = buildQuestionSelect(
+        answeredQuestions,
+        responseMap,
+        `application-delete-select:${interaction.message?.channelId || 'none'}:${interaction.message?.id || 'none'}:${encodeURIComponent(
+          submitLabelFromMessage || ''
+        )}`
+      );
+      selectRow.components[0].setPlaceholder('Select a question to delete the answer');
+
+      await interaction.reply({ content: 'Choose which answer you want to delete.', components: [selectRow], ephemeral: true });
+      return;
+    }
+
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('application-delete-select')) {
+      const [, sourceChannelId, sourceMessageId, encodedLabel] = interaction.customId.split(':');
+      const submitLabel = encodedLabel ? decodeURIComponent(encodedLabel) : undefined;
+      const questionId = interaction.values?.[0];
+      const question = questions.find((q) => q.id === questionId);
+      if (!question) {
+        await interaction.reply({ content: 'That question is no longer available.', ephemeral: true });
+        return;
+      }
+
+      await deleteApplicationResponse(interaction.user.id, question.id);
+      const responses = await getApplicationResponses(interaction.user.id);
+      const responsesMap = buildResponseMap(responses);
+
+      if (sourceChannelId && sourceChannelId !== 'none' && sourceMessageId && sourceMessageId !== 'none') {
+        await refreshApplicationMessage(
+          interaction.client,
+          sourceChannelId,
+          sourceMessageId,
+          interaction.user.id,
+          responsesMap,
+          questions,
+          submitLabel || undefined
+        );
+      }
+
+      await sendResponseSummary(interaction, responsesMap, questions, { submitLabel });
       return;
     }
 
@@ -276,27 +391,16 @@ async function registerApplicationFlow(client, config, helpers) {
       const reason = interaction.fields.getTextInputValue('deny-reason');
       await setApplicationStatus(targetUserId, 'denied', interaction.user.id, reason);
 
-      const waitingRoomChannel = waitingRoomChannelId
-        ? interaction.guild.channels.cache.get(waitingRoomChannelId) ||
-          (await interaction.guild.channels.fetch(waitingRoomChannelId).catch(() => null))
-        : null;
+      const responses = await getApplicationResponses(targetUserId);
+      const responsesMap = buildResponseMap(responses);
+
       const member = await interaction.guild.members.fetch(targetUserId).catch(() => null);
       const notice = `Your application was denied. Reason: ${reason}`;
       if (member) {
-        await member.send(notice).catch(async () => {
-          if (waitingRoomChannel) {
-            await waitingRoomChannel.send({
-              content: `<@${targetUserId}> ${notice}`,
-              allowedMentions: { users: [targetUserId] }
-            });
-          }
-        });
-      } else if (waitingRoomChannel) {
-        await waitingRoomChannel.send({
-          content: `<@${targetUserId}> ${notice}`,
-          allowedMentions: { users: [targetUserId] }
-        });
+        await member.send(notice).catch(() => null);
       }
+
+      await sendDeniedOverview(interaction.guild, waitingRoomChannelId, targetUserId, responsesMap, questions, reason);
 
       await interaction.reply({ content: `Denied application for <@${targetUserId}>.`, ephemeral: true });
       return;

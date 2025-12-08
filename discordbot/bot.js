@@ -9,8 +9,10 @@ const {
   saveApplicationResponse,
   getApplicationResponses,
   getApplicationResponse,
+  deleteApplicationResponse,
   setApplicationStatus,
-  getApplication
+  getApplication,
+  resetApplication
 } = require('../database/database');
 const { loadCommands } = require('./loadCommands');
 const { registerApplicationFlow } = require('./applicationFlow');
@@ -210,8 +212,10 @@ function buildCommandContext() {
     saveApplicationResponse,
     getApplicationResponses,
     getApplicationResponse,
+    deleteApplicationResponse,
     setApplicationStatus,
     getApplication,
+    resetApplication,
     applicationQuestions: botConfig?.questions,
     applicationRoles: botConfig?.roles,
     applicationChannels: botConfig?.channels
@@ -265,6 +269,7 @@ module.exports = function createDiscordBot() {
     saveApplicationResponse,
     getApplicationResponses,
     getApplicationResponse,
+    deleteApplicationResponse,
     setApplicationStatus,
     sendToChannel,
     ensureRole,
