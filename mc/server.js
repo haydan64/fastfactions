@@ -289,12 +289,26 @@ class BedrockServerController {
     }
 
     const currentProcess = this.process;
+    let stopTimeout;
     const awaitExit = new Promise((resolve) => {
-      currentProcess.once('exit', () => resolve());
+      currentProcess.once('exit', () => {
+        clearTimeout(stopTimeout);
+        resolve();
+      });
     });
 
     eventBus.emit(SERVER_STATE, { state: 'stopping', message: 'Stopping Bedrock server', important: true });
-    currentProcess.kill('SIGTERM');
+
+    // Ask the server to stop gracefully first to ensure worlds are saved.
+    this.sendCommand('stop');
+
+    stopTimeout = setTimeout(() => {
+      eventBus.emit(SERVER_LOG, {
+        level: 'warn',
+        message: 'Graceful stop timed out; force killing Bedrock server'
+      });
+      currentProcess.kill('SIGKILL');
+    }, 10000);
 
     return awaitExit;
   }
