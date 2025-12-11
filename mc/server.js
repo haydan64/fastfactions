@@ -29,15 +29,6 @@ const DEFAULT_BINARY = path.join(
 const ALLOWLIST_PATH = path.join(SERVER_ROOT, 'allowlist.json');
 const PERMISSIONS_PATH = path.join(SERVER_ROOT, 'permissions.json');
 
-function safeJsonParse(filePath) {
-  try {
-    const contents = fs.readFileSync(filePath, 'utf8');
-    return JSON.parse(contents);
-  } catch (err) {
-    return [];
-  }
-}
-
 function writeJson(filePath, data) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
@@ -57,18 +48,42 @@ function copyRecursive(src, dest) {
   }
 }
 
-function updatePackList(manifest, fileName) {
-  const filePath = path.join(WORLD_PATH, fileName);
-  const packs = Array.isArray(safeJsonParse(filePath)) ? safeJsonParse(filePath) : [];
-  const packId = manifest?.header?.uuid;
-  const version = manifest?.header?.version;
-  if (!packId || !version) return;
-
-  const exists = packs.some((pack) => pack.pack_id === packId);
-  if (!exists) {
-    packs.push({ pack_id: packId, version });
+function readPackEntry(manifestPath) {
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const packId = manifest?.header?.uuid;
+    const version = manifest?.header?.version;
+    if (packId && version) {
+      return { pack_id: packId, version };
+    }
+  } catch (err) {
+    eventBus.emit(SERVER_LOG, {
+      level: 'error',
+      message: `Failed to parse pack manifest ${manifestPath}: ${err.message}`
+    });
   }
-  writeJson(filePath, packs);
+  return null;
+}
+
+function collectPackEntries(packRoot) {
+  const packs = [];
+  if (!fs.existsSync(packRoot)) return packs;
+
+  for (const entry of fs.readdirSync(packRoot)) {
+    const manifestPath = path.join(packRoot, entry, 'manifest.json');
+    if (!fs.existsSync(manifestPath)) continue;
+    const packEntry = readPackEntry(manifestPath);
+    if (packEntry) {
+      packs.push(packEntry);
+    }
+  }
+  return packs;
+}
+
+function syncPackList(packRoot, fileName) {
+  const filePath = path.join(WORLD_PATH, fileName);
+  const installedPacks = collectPackEntries(packRoot);
+  writeJson(filePath, installedPacks);
 }
 
 class BedrockServerController {
@@ -88,26 +103,13 @@ class BedrockServerController {
   }
 
   ensureLinkAddon() {
-    const behaviorManifestPath = path.join(BEHAVIOR_ADDON_PATH, 'manifest.json');
-    const resourceManifestPath = path.join(RESOURCE_ADDON_PATH, 'manifest.json');
-    const behaviorManifest = fs.existsSync(behaviorManifestPath)
-      ? JSON.parse(fs.readFileSync(behaviorManifestPath, 'utf8'))
-      : null;
-    const resourceManifest = fs.existsSync(resourceManifestPath)
-      ? JSON.parse(fs.readFileSync(resourceManifestPath, 'utf8'))
-      : null;
-
     const worldAddonPath = path.join(WORLD_PATH, 'behavior_packs', 'linkaddon');
     const worldResourcePath = path.join(WORLD_PATH, 'resource_packs', 'linkaddon');
     copyRecursive(BEHAVIOR_ADDON_PATH, worldAddonPath);
     copyRecursive(RESOURCE_ADDON_PATH, worldResourcePath);
 
-    if (behaviorManifest) {
-      updatePackList(behaviorManifest, 'world_behavior_packs.json');
-    }
-    if (resourceManifest) {
-      updatePackList(resourceManifest, 'world_resource_packs.json');
-    }
+    syncPackList(path.join(WORLD_PATH, 'behavior_packs'), 'world_behavior_packs.json');
+    syncPackList(path.join(WORLD_PATH, 'resource_packs'), 'world_resource_packs.json');
   }
 
   loadJson(filePath, fallback = []) {
@@ -283,24 +285,39 @@ class BedrockServerController {
   stop() {
     if (!this.process) {
       eventBus.emit(SERVER_STATE, { state: 'stopped', message: 'Server not running' });
-      return;
+      return Promise.resolve();
     }
+
+    const currentProcess = this.process;
+    const awaitExit = new Promise((resolve) => {
+      currentProcess.once('exit', () => resolve());
+    });
+
     eventBus.emit(SERVER_STATE, { state: 'stopping', message: 'Stopping Bedrock server', important: true });
-    this.process.kill('SIGTERM');
+    currentProcess.kill('SIGTERM');
+
+    return awaitExit;
   }
 
   forceStop() {
     if (!this.process) {
       eventBus.emit(SERVER_STATE, { state: 'stopped', message: 'Server not running' });
-      return;
+      return Promise.resolve();
     }
+
+    const currentProcess = this.process;
+    const awaitExit = new Promise((resolve) => {
+      currentProcess.once('exit', () => resolve());
+    });
+
     eventBus.emit(SERVER_STATE, { state: 'stopping', message: 'Force stopping Bedrock server', important: true });
-    this.process.kill('SIGKILL');
+    currentProcess.kill('SIGKILL');
+
+    return awaitExit;
   }
 
   async restart() {
-    this.stop();
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await this.stop();
     return this.start();
   }
 
