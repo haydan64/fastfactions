@@ -270,20 +270,20 @@ async function refreshApplicationMessage(
 }
 
 async function sendDeniedOverview(guild, waitingRoomChannelId, targetUserId, responsesMap, questions, reason) {
-  if (!waitingRoomChannelId || !guild) return;
-  const channel = guild.channels.cache.get(waitingRoomChannelId) || (await guild.channels.fetch(waitingRoomChannelId).catch(() => null));
-  if (!channel || !channel.isTextBased()) return;
+  // if (!waitingRoomChannelId || !guild) return;
+  // const channel = guild.channels.cache.get(waitingRoomChannelId) || (await guild.channels.fetch(waitingRoomChannelId).catch(() => null));
+  // if (!channel || !channel.isTextBased()) return;
 
-  const embed = buildProgressEmbed(responsesMap, questions, 'Application Denied');
-  embed.addFields({ name: 'Status', value: `Denied reason: ${reason || 'No reason provided.'}` });
+  // const embed = buildProgressEmbed(responsesMap, questions, 'Application Denied');
+  // embed.addFields({ name: 'Status', value: `Denied reason: ${reason || 'No reason provided.'}` });
 
-  const components = buildActionRows(responsesMap, questions, 'Resubmit Application');
-  await channel.send({
-    content: `<@${targetUserId}> Your application was denied. You can edit your responses below and resubmit.`,
-    embeds: [embed],
-    components,
-    allowedMentions: { users: [targetUserId] }
-  });
+  // const components = buildActionRows(responsesMap, questions, 'Resubmit Application');
+  // await channel.send({
+  //   content: `<@${targetUserId}> Your application was denied. You can edit your responses below and resubmit.`,
+  //   embeds: [embed],
+  //   components,
+  //   allowedMentions: { users: [targetUserId] }
+  // });
 }
 
 async function registerApplicationFlow(client, config, helpers) {
@@ -469,7 +469,7 @@ async function registerApplicationFlow(client, config, helpers) {
         }
       }
 
-      await interaction.reply({ content: `Application for <@${targetUserId}> has been accepted.`, ephemeral: true });
+      await interaction.reply({ content: `Application for <@${targetUserId}> has been accepted by <@${interaction?.user?.id || "error"}>.` });
 
       const notification = `Your application has been accepted! Welcome to the server.`;
       const waitingRoomChannel = waitingRoomChannelId
@@ -529,7 +529,7 @@ async function registerApplicationFlow(client, config, helpers) {
       const responsesMap = buildResponseMap(responses);
 
       const member = await interaction.guild.members.fetch(targetUserId).catch(() => null);
-      const notice = `Your application was denied. Reason: ${reason}`;
+      const notice = `**Your application was denied.** Reason: ${reason}`;
       const targetUser = member?.user || (await interaction.client.users.fetch(targetUserId).catch(() => null));
       if (targetUser) {
         await targetUser.send(notice).catch(() => null);
@@ -538,7 +538,7 @@ async function registerApplicationFlow(client, config, helpers) {
 
       await sendDeniedOverview(interaction.guild, waitingRoomChannelId, targetUserId, responsesMap, questions, reason);
 
-      await interaction.reply({ content: `Denied application for <@${targetUserId}>.`, ephemeral: true });
+      await interaction.reply({ content: `<@${interaction?.user?.id || "error"}> Denied application for <@${targetUserId}>.` });
       return;
     }
   });

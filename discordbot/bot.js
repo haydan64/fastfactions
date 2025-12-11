@@ -180,7 +180,13 @@ function registerDiscordAuditHandlers(client) {
     }
 
     if (changes.length) {
-      const embed = buildAuditEmbed('Member Updated', changes.join('\n'), 0x337ab7);
+      const embed = buildAuditEmbed('Member Updated', changes.join('\n'), 0x337ab7)
+        .setAuthor({
+          name: formatUser(newMember),
+          iconURL: newMember.user?.displayAvatarURL?.({ size: 128 }) || null
+        })
+        .setThumbnail(newMember.user?.displayAvatarURL?.({ size: 256 }) || null);
+
       sendToChannel(newMember.client, DISCORD_LOG_CHANNEL, { embeds: [embed] });
     }
   });
