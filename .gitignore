@@ -32,6 +32,7 @@ Thumbs.db
 
 # ignore minecraft server files
 /mc/bds/*
+/mc/backups/*
 !/mc/bds/.gitkeep
 
 # ignore discord bot environment
