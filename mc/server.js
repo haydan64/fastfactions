@@ -235,9 +235,12 @@ class BedrockServerController {
 
   async performOnlineBackup(worldDestination) {
     this.sendCommand('save hold');
-    const manifest = await this.fetchBackupManifest();
-    this.copyManifestFiles(manifest, worldDestination);
-    this.sendCommand('save resume');
+    try {
+      const manifest = await this.fetchBackupManifest();
+      this.copyManifestFiles(manifest, worldDestination);
+    } finally {
+      this.sendCommand('save resume');
+    }
   }
 
   ensureDirectories() {
