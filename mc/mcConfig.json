@@ -1,0 +1,7 @@
+{
+  "enableAutoBackup": true,
+  "backupFrequencyMinutes": 60,
+  "backupDirectory": "./mc/backups",
+  "autoRestartAfterCrash": true,
+  "autoRestartAttempts": 5
+}

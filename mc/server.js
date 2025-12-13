@@ -22,12 +22,15 @@ const LINK_ADDON_PATH = path.join(__dirname, 'linkaddon');
 const BEHAVIOR_ADDON_PATH = path.join(LINK_ADDON_PATH, 'behavior');
 const RESOURCE_ADDON_PATH = path.join(LINK_ADDON_PATH, 'resource');
 const BACKUP_PATH = path.join(__dirname, 'backups');
+const SERVER_STATE_FOLDER = 'server state';
 const DEFAULT_BINARY = path.join(
   SERVER_ROOT,
   process.platform === 'win32' ? 'bedrock_server.exe' : 'bedrock_server'
 );
 const ALLOWLIST_PATH = path.join(SERVER_ROOT, 'allowlist.json');
 const PERMISSIONS_PATH = path.join(SERVER_ROOT, 'permissions.json');
+const SERVER_PROPERTIES_PATH = path.join(SERVER_ROOT, 'server.properties');
+const SERVER_CONFIG_PATH = path.join(SERVER_ROOT, 'config');
 
 function writeJson(filePath, data) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -65,6 +68,20 @@ function readPackEntry(manifestPath) {
   return null;
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function ensureParentDirectory(filePath) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+}
+
+function copyIfExists(src, dest) {
+  if (!fs.existsSync(src)) return;
+  ensureParentDirectory(dest);
+  fs.copyFileSync(src, dest);
+}
+
 function collectPackEntries(packRoot) {
   const packs = [];
   if (!fs.existsSync(packRoot)) return packs;
@@ -95,6 +112,132 @@ class BedrockServerController {
         eventBus.emit(SERVER_LOG, { level: 'error', message: `Server command failed: ${err.message}` })
       )
     );
+  }
+
+  cleanLogMessage(message = '') {
+    return message.replace(/^NO LOG FILE!\s*-\s*/i, '').replace(/^.*?INFO]\s*/i, '').trim();
+  }
+
+  waitForLogMatch(predicate, timeout = 5000) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        eventBus.off(SERVER_LOG, onLog);
+        reject(new Error('Timed out waiting for server response'));
+      }, timeout);
+
+      const onLog = (payload = {}) => {
+        try {
+          const result = predicate(payload.message || '');
+          if (result) {
+            clearTimeout(timer);
+            eventBus.off(SERVER_LOG, onLog);
+            resolve(result);
+          }
+        } catch (err) {
+          clearTimeout(timer);
+          eventBus.off(SERVER_LOG, onLog);
+          reject(err);
+        }
+      };
+
+      eventBus.on(SERVER_LOG, onLog);
+    });
+  }
+
+  parseBackupListing(line = '') {
+    const cleaned = this.cleanLogMessage(line);
+    return cleaned
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => {
+        const [filePath, length] = entry.split(':');
+        return {
+          filePath: filePath?.trim(),
+          length: Number.parseInt(length?.trim(), 10)
+        };
+      })
+      .filter((entry) => entry.filePath && Number.isFinite(entry.length));
+  }
+
+  async fetchBackupManifest() {
+    const deadline = Date.now() + 20000;
+
+    while (Date.now() < deadline) {
+      this.sendCommand('save query');
+
+      const listing = await this.waitForLogMatch((message) => {
+        if (/files are now ready to be copied/i.test(this.cleanLogMessage(message))) {
+          return null;
+        }
+
+        const parsed = this.parseBackupListing(message);
+        return parsed.length ? parsed : null;
+      }, Math.max(1000, deadline - Date.now())).catch(() => null);
+
+      if (listing?.length) {
+        return listing;
+      }
+
+      await delay(1000);
+    }
+
+    throw new Error('Timed out waiting for Bedrock backup manifest');
+  }
+
+  copyManifestFiles(manifest = [], destinationRoot) {
+    fs.mkdirSync(destinationRoot, { recursive: true });
+
+    for (const { filePath, length } of manifest) {
+      const source = path.join(SERVER_ROOT, 'worlds', filePath);
+      const destination = path.join(destinationRoot, filePath);
+
+      if (!fs.existsSync(source)) {
+        eventBus.emit(SERVER_LOG, {
+          level: 'warn',
+          message: `Backup file missing, skipping: ${filePath}`
+        });
+        continue;
+      }
+
+      ensureParentDirectory(destination);
+      fs.copyFileSync(source, destination);
+      if (Number.isFinite(length)) {
+        fs.truncateSync(destination, length);
+      }
+    }
+  }
+
+  copyWorldExtras(destinationRoot) {
+    const worldDestination = path.join(destinationRoot, WORLD_NAME);
+    const worldSources = [
+      path.join(WORLD_PATH, 'world_icon.jpeg'),
+      path.join(WORLD_PATH, 'world_behavior_packs.json'),
+      path.join(WORLD_PATH, 'world_resource_packs.json')
+    ];
+
+    for (const src of worldSources) {
+      const dest = path.join(worldDestination, path.basename(src));
+      copyIfExists(src, dest);
+    }
+
+    copyRecursive(path.join(WORLD_PATH, 'behavior_packs'), path.join(worldDestination, 'behavior_packs'));
+    copyRecursive(path.join(WORLD_PATH, 'resource_packs'), path.join(worldDestination, 'resource_packs'));
+  }
+
+  copyServerState(destinationRoot) {
+    const serverStatePath = path.join(destinationRoot, SERVER_STATE_FOLDER);
+    copyIfExists(ALLOWLIST_PATH, path.join(serverStatePath, 'allowlist.json'));
+    copyIfExists(PERMISSIONS_PATH, path.join(serverStatePath, 'permissions.json'));
+    copyIfExists(SERVER_PROPERTIES_PATH, path.join(serverStatePath, 'server.properties'));
+    copyRecursive(SERVER_CONFIG_PATH, path.join(serverStatePath, 'config'));
+  }
+
+  async performOnlineBackup(worldDestination) {
+    this.sendCommand('save hold');
+    const manifest = await this.fetchBackupManifest();
+    this.copyManifestFiles(manifest, worldDestination);
+    this.sendCommand('save resume');
   }
 
   ensureDirectories() {
@@ -339,7 +482,28 @@ class BedrockServerController {
     this.ensureDirectories();
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const destination = path.join(BACKUP_PATH, `backup-${timestamp}`);
-    copyRecursive(WORLD_PATH, destination);
+    const worldDestination = path.join(destination, 'worlds');
+
+    fs.mkdirSync(destination, { recursive: true });
+
+    try {
+      if (this.process) {
+        await this.performOnlineBackup(worldDestination);
+      } else {
+        copyRecursive(WORLD_PATH, path.join(worldDestination, WORLD_NAME));
+      }
+    } catch (err) {
+      eventBus.emit(SERVER_LOG, {
+        level: 'error',
+        message: `Online backup failed (${err.message}). Falling back to offline copy.`,
+        important: true
+      });
+      copyRecursive(WORLD_PATH, path.join(worldDestination, WORLD_NAME));
+    }
+
+    this.copyWorldExtras(worldDestination);
+    this.copyServerState(destination);
+
     const message = `World backup created at ${destination}`;
     eventBus.emit(SERVER_BACKUP, { path: destination, message, important: true });
     eventBus.emit(SERVER_LOG, { level: 'info', message });
