@@ -37,4 +37,5 @@ Thumbs.db
 
 # ignore discord bot environment
 /discordbot/.env
+/discordbot/messages.txt
 
