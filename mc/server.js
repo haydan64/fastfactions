@@ -12,7 +12,7 @@ const {
 } = require('../database/database');
 
 const {
-  EVENTS: { SERVER_LOG, SERVER_STATE, SERVER_COMMAND, SERVER_BACKUP }
+  EVENTS: { SERVER_LOG, SERVER_STATE, SERVER_COMMAND, SERVER_BACKUP, MINECRAFT_EVENT }
 } = eventBus;
 
 const SERVER_ROOT = path.join(__dirname, 'bds');
@@ -107,6 +107,7 @@ class BedrockServerController {
   constructor() {
     this.process = null;
     this.hasCrashed = false;
+    this.lastLogLevel = 'info';
     eventBus.on(SERVER_COMMAND, (payload) =>
       this.handleExternalCommand(payload).catch((err) =>
         eventBus.emit(SERVER_LOG, { level: 'error', message: `Server command failed: ${err.message}` })
@@ -525,11 +526,42 @@ class BedrockServerController {
     eventBus.emit(SERVER_LOG, { level: 'info', message: `Sent command: ${command}` });
   }
 
-  handleLogLine(line, level = 'info') {
-    const normalized = line.trim();
-    if (normalized) {
-      console.log(`[BDS] ${normalized}`);
+  parseJsonPayload(normalized = '') {
+    const jsonMatch = normalized.match(/\{.*\}$/);
+    if (!jsonMatch) return null;
+
+    try {
+      return JSON.parse(jsonMatch[0]);
+    } catch (err) {
+      eventBus.emit(SERVER_LOG, {
+        level: 'warn',
+        message: `Failed to parse JSON from log line: ${err.message} | ${normalized}`
+      });
+      return null;
     }
+  }
+
+  handleLogLine(line, level = 'info') {
+    const raw = (line || '').trim();
+    if (!raw) return;
+
+    console.log(`[BDS] ${raw}`);
+
+    const timestampMatch = raw.match(/^\[BDS\]\s*\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}:\d{3})\s+([A-Z]+)\]\s*(.*)$/);
+
+    let normalized;
+    let derivedLevel = level;
+
+    if (timestampMatch) {
+      const [, , severity, rest] = timestampMatch;
+      normalized = rest.trim();
+      derivedLevel = (severity || '').toLowerCase() || level;
+      this.lastLogLevel = derivedLevel;
+    } else {
+      normalized = raw.replace(/^\[BDS\]\s*/i, '').trim();
+      derivedLevel = this.lastLogLevel || level;
+    }
+
     const importantPatterns = [
       { regex: /server (start|starting)/i, reason: 'Server starting' },
       { regex: /server stop/i, reason: 'Server stopping' },
@@ -540,7 +572,7 @@ class BedrockServerController {
     ];
 
     const important = importantPatterns.some((pattern) => pattern.regex.test(normalized));
-    eventBus.emit(SERVER_LOG, { level, message: normalized, important });
+    eventBus.emit(SERVER_LOG, { level: derivedLevel, message: normalized, important });
 
     const playerJoinMatch = normalized.match(/Player connected:\s*([^,]+),\s*xuid:\s*([\w-]+)/i);
     if (playerJoinMatch) {
@@ -558,6 +590,61 @@ class BedrockServerController {
     }
     if (/crash/i.test(normalized)) {
       eventBus.emit(SERVER_STATE, { state: 'crashed', message: normalized, important: true });
+    }
+
+    if (normalized.startsWith('INFO] [Scripting] [MCLINK] [Chat Sent]')) {
+      const payload = this.parseJsonPayload(normalized.replace('INFO] [Scripting] [MCLINK] [Chat Sent]', ''));
+      if (payload) {
+        eventBus.emit(MINECRAFT_EVENT, { event: 'chatSent', content: payload, raw: normalized });
+      }
+    } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [PLAYER GAMEMODE CHANGE]')) {
+      const payload = this.parseJsonPayload(
+        normalized.replace('INFO] [Scripting] [MCLINK] [PLAYER GAMEMODE CHANGE]', '')
+      );
+      if (payload) {
+        eventBus.emit(MINECRAFT_EVENT, { event: 'playerGamemodeChange', content: payload, raw: normalized });
+      }
+    } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [PLAYER PLACE BLOCK]')) {
+      const payload = this.parseJsonPayload(
+        normalized.replace('INFO] [Scripting] [MCLINK] [PLAYER PLACE BLOCK]', '')
+      );
+      if (payload) {
+        eventBus.emit(MINECRAFT_EVENT, { event: 'playerPlaceBlock', content: payload, raw: normalized });
+      }
+    } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [PLAYER BREAK BLOCK]')) {
+      const payload = this.parseJsonPayload(
+        normalized.replace('INFO] [Scripting] [MCLINK] [PLAYER BREAK BLOCK]', '')
+      );
+      if (payload) {
+        eventBus.emit(MINECRAFT_EVENT, { event: 'playerBreakBlock', content: payload, raw: normalized });
+      }
+    } else if (normalized.startsWith('INFO] [Scripting] [MCLINK][EFFECT ADDED]')) {
+      const payload = this.parseJsonPayload(normalized.replace('INFO] [Scripting] [MCLINK][EFFECT ADDED]', ''));
+      if (payload) {
+        eventBus.emit(MINECRAFT_EVENT, { event: 'effectAdded', content: payload, raw: normalized });
+      }
+    } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [GAMERULE CHANGED]')) {
+      const payload = this.parseJsonPayload(normalized.replace('INFO] [Scripting] [MCLINK] [GAMERULE CHANGED]', ''));
+      if (payload) {
+        eventBus.emit(MINECRAFT_EVENT, { event: 'gameruleChanged', content: payload, raw: normalized });
+      }
+    } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [PLAYER DIMENSION CHANGE]')) {
+      const payload = this.parseJsonPayload(
+        normalized.replace('INFO] [Scripting] [MCLINK] [PLAYER DIMENSION CHANGE]', '')
+      );
+      if (payload) {
+        eventBus.emit(MINECRAFT_EVENT, { event: 'playerDimensionChange', content: payload, raw: normalized });
+      }
+    } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [ENTITY DIED]')) {
+      const payload = this.parseJsonPayload(normalized.replace('INFO] [Scripting] [MCLINK] [ENTITY DIED]', ''));
+      if (payload) {
+        eventBus.emit(MINECRAFT_EVENT, { event: 'entityDied', content: payload, raw: normalized });
+      }
+    } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [PLAYER LIST]')) {
+      const payload = this.parseJsonPayload(normalized.replace('INFO] [Scripting] [MCLINK] [PLAYER LIST]', ''));
+      if (payload) {
+        eventBus.emit(MINECRAFT_EVENT, { event: 'playerList', content: payload, raw: normalized });
+      }
     }
   }
 
