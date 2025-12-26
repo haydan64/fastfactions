@@ -4,14 +4,67 @@
     "name": "Link Addon Behavior",
     "description": "Behavior pack placeholder for automation",
     "uuid": "9c4b4db6-f8da-4a34-9a23-1c39c66c5b51",
-    "version": [1, 0, 0],
-    "min_engine_version": [1, 20, 0]
+    "version": [
+      1,
+      0,
+      0
+    ],
+    "min_engine_version": [
+      1,
+      20,
+      0
+    ]
   },
   "modules": [
     {
       "type": "data",
       "uuid": "a3091a6e-6c26-4ffb-b55a-8f8916b2d1c8",
-      "version": [1, 0, 0]
+      "version": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "description": "scripts",
+      "type": "script",
+      "language": "javascript",
+      "uuid": "490443fb-aad2-4e8a-b3cf-182535da2a80",
+      "version": [
+        1,
+        0,
+        0
+      ],
+      "entry": "scripts/index.js"
+    }
+  ],
+  "capabilities": [
+    "script_eval"
+  ],
+  "dependencies": [
+    {
+      "module_name": "@minecraft/server",
+      "version": "beta"
+    },
+    {
+      "module_name": "@minecraft/server-ui",
+      "version": "beta"
+    },
+    {
+      "module_name": "@minecraft/server-gametest",
+      "version": "beta"
+    },
+    {
+      "module_name": "@minecraft/server-admin",
+      "version": "beta"
+    },
+    {
+      "uuid": "e304a4eb-f0a0-4979-ac17-7b0f46a555c8",
+      "version": [
+        0,
+        10,
+        3
+      ]
     }
   ]
 }
