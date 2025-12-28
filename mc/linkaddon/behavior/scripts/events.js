@@ -34,7 +34,11 @@ world.afterEvents.effectAdd.subscribe((eventData) => {
 world.afterEvents.entityDie.subscribe((eventData) => {
     console.info("[MCLINK] [ENTITY DIED]", JSON.stringify({
         entity: eventData.deadEntity.id,
+        entityType: eventData.deadEntity.typeId,
+        entityName: eventData.deadEntity.nameTag || eventData.deadEntity.name || null,
         damagingEntity: eventData.damageSource.damagingEntity?.id || null,
+        damagingEntityType: eventData.damageSource.damagingEntity?.typeId || null,
+        damagingEntityName: eventData.damageSource.damagingEntity?.nameTag || null,
         cause: eventData.damageSource.cause,
         location: eventData.deadEntity.location,
         dimension: eventData.deadEntity.dimension.id

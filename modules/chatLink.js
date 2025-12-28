@@ -73,6 +73,46 @@ function collectDiscordMessageContent(message) {
   return parts.join(' ').trim();
 }
 
+function formatDimensionName(dimensionId) {
+  if (!dimensionId) return null;
+  const [, dimName] = dimensionId.split(':');
+  switch (dimName) {
+    case 'overworld':
+      return 'Overworld';
+    case 'nether':
+      return 'Nether';
+    case 'the_end':
+      return 'The End';
+    default:
+      return dimName || dimensionId;
+  }
+}
+
+function formatLocation(location) {
+  if (!location) return null;
+  const { x, y, z } = location;
+  if ([x, y, z].some((v) => typeof v !== 'number')) return null;
+  return `${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}`;
+}
+
+function formatDeathMessage(content = {}) {
+  const name = content.entityName || content.entityType || content.entity || 'An entity';
+  const killer = content.damagingEntityName || content.damagingEntityType || content.damagingEntity;
+  const cause = content.cause ? String(content.cause).toLowerCase() : null;
+
+  const causeDescriptions = {
+    entityattack: 'was slain',
+    projectile: 'was shot',
+    fallback: 'died'
+  };
+
+  const action = cause ? causeDescriptions[cause] || causeDescriptions.fallback : causeDescriptions.fallback;
+  const killerText = killer ? ` by ${killer}` : '';
+  const causeText = cause && !causeDescriptions[cause] ? ` (cause: ${cause})` : '';
+
+  return `**${name}** ${action}${killerText}.${causeText}`.trim();
+}
+
 module.exports = function registerChatLinkModule({ bot }) {
   const client = bot?.client;
 
@@ -134,6 +174,32 @@ module.exports = function registerChatLinkModule({ bot }) {
         });
       } catch (err) {
         console.error('Failed to relay Minecraft join message to Discord:', err.message);
+      }
+    }
+    if (event === 'entityDied' && content) {
+      try {
+        const description = formatDeathMessage(content);
+        const fields = [];
+
+        const dimensionName = formatDimensionName(content.dimension);
+        if (dimensionName) fields.push({ name: 'Dimension', value: dimensionName, inline: true });
+
+        const locationText = formatLocation(content.location);
+        if (locationText) fields.push({ name: 'Location', value: locationText, inline: true });
+
+        await sendWebhookMessage({
+          embeds: [
+            {
+              description,
+              color: 0xED4245, // Discord "danger" red
+              timestamp: new Date().toISOString(),
+              fields: fields.length ? fields : undefined
+            }
+          ],
+          allowed_mentions: { parse: [] }
+        });
+      } catch (err) {
+        console.error('Failed to relay Minecraft death message to Discord:', err.message);
       }
     }
   });
