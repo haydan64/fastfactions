@@ -73,44 +73,37 @@ function collectDiscordMessageContent(message) {
   return parts.join(' ').trim();
 }
 
-function formatDimensionName(dimensionId) {
-  if (!dimensionId) return null;
-  const [, dimName] = dimensionId.split(':');
-  switch (dimName) {
-    case 'overworld':
-      return 'Overworld';
-    case 'nether':
-      return 'Nether';
-    case 'the_end':
-      return 'The End';
-    default:
-      return dimName || dimensionId;
-  }
+function decamelize(str) {
+  return str
+    // split lower→upper and number→letter
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    // split letter→number
+    .replace(/([a-zA-Z])([0-9])/g, '$1 $2')
+    // normalize spacing & lowercase
+    .toLowerCase()
+    .trim();
 }
 
-function formatLocation(location) {
-  if (!location) return null;
-  const { x, y, z } = location;
-  if ([x, y, z].some((v) => typeof v !== 'number')) return null;
-  return `${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}`;
-}
 
 function formatDeathMessage(content = {}) {
   const name = content.entityName || content.entityType || content.entity || 'An entity';
-  const killer = content.damagingEntityName || content.damagingEntityType || content.damagingEntity;
-  const cause = content.cause ? String(content.cause).toLowerCase() : null;
+  let killer = content.damagingEntityName || content.damagingEntityType || content.damagingEntity;
+  if(killer?.includes(":")) killer = decamelize(killer.split(":")[1]);
+  const cause = content.cause ? decamelize(String(content.cause)) : null;
 
   const causeDescriptions = {
     entityattack: 'was slain',
     projectile: 'was shot',
-    fallback: 'died'
+    fallback: 'was killed'
   };
 
   const action = cause ? causeDescriptions[cause] || causeDescriptions.fallback : causeDescriptions.fallback;
-  const killerText = killer ? ` by ${killer}` : '';
-  const causeText = cause && !causeDescriptions[cause] ? ` (cause: ${cause})` : '';
+  let killerText = '';
+  if (killer) killerText += ` by ${killer}`;
+  if (killer && cause) killerText += ` using ${cause}`;
+  if (!killer && cause) killerText = ` by ${cause}`;
 
-  return `**${name}** ${action}${killerText}.${causeText}`.trim();
+  return `**${name}** ${action}${killerText}.`.trim();
 }
 
 module.exports = function registerChatLinkModule({ bot }) {
@@ -177,15 +170,10 @@ module.exports = function registerChatLinkModule({ bot }) {
       }
     }
     if (event === 'entityDied' && content) {
+      if(content?.entityType !== "minecraft:player") return;
       try {
         const description = formatDeathMessage(content);
-        const fields = [];
 
-        const dimensionName = formatDimensionName(content.dimension);
-        if (dimensionName) fields.push({ name: 'Dimension', value: dimensionName, inline: true });
-
-        const locationText = formatLocation(content.location);
-        if (locationText) fields.push({ name: 'Location', value: locationText, inline: true });
 
         await sendWebhookMessage({
           embeds: [
@@ -193,7 +181,6 @@ module.exports = function registerChatLinkModule({ bot }) {
               description,
               color: 0xED4245, // Discord "danger" red
               timestamp: new Date().toISOString(),
-              fields: fields.length ? fields : undefined
             }
           ],
           allowed_mentions: { parse: [] }

@@ -38,7 +38,7 @@ world.afterEvents.entityDie.subscribe((eventData) => {
         entityName: eventData.deadEntity.nameTag || eventData.deadEntity.name || null,
         damagingEntity: eventData.damageSource.damagingEntity?.id || null,
         damagingEntityType: eventData.damageSource.damagingEntity?.typeId || null,
-        damagingEntityName: eventData.damageSource.damagingEntity?.nameTag || null,
+        damagingEntityName: eventData.damageSource.damagingEntity?.isValid ? eventData.damageSource.damagingEntity?.nameTag || null : null,
         cause: eventData.damageSource.cause,
         location: eventData.deadEntity.location,
         dimension: eventData.deadEntity.dimension.id
