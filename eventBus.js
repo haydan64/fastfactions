@@ -13,6 +13,13 @@ const eventBus = new EventEmitter({ captureRejections: true });
 
 eventBus.setMaxListeners(50);
 
+Object.entries(EVENTS).forEach(([key, value]) => {
+  if(value === "server:log") return;
+  eventBus.on(value, (...args) => {
+    console.log(`[EventBus] Event: ${key}`, ...args);
+  });
+});
+
 eventBus.EVENTS = EVENTS;
 
 module.exports = eventBus;

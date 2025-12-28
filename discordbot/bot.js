@@ -22,7 +22,7 @@ const {
   EVENTS: { SERVER_LOG, SERVER_STATE }
 } = eventBus;
 
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+require('dotenv').config({ path: path.join(__dirname, '../env') });
 
 const SERVER_LOG_CHANNEL = '1441903391830970489';
 const DISCORD_LOG_CHANNEL = '757597730666315837';

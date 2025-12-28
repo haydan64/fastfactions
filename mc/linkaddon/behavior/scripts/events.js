@@ -1,8 +1,8 @@
-import {world,system} from "@minecraft/server";
+import { world, system } from "@minecraft/server";
 
 world.beforeEvents.chatSend.subscribe((eventData) => {
     const message = eventData.message;
-    console.info("[MCLINK] [Chat Sent]", JSON.stringify({
+    console.info("[MCLINK] [CHAT SENT]", JSON.stringify({
         message: eventData.message,
         sender: eventData.sender.name,
         targets: eventData.targets?.map(t => t.name)
@@ -10,15 +10,15 @@ world.beforeEvents.chatSend.subscribe((eventData) => {
     eventData.cancel = true;
 
     let nameColor = "";
-    if(eventData.sender.hasTag("war")) nameColor = "§4";
-    else if(eventData.sender.hasTag("leg")) nameColor = "§3";
-    else if(eventData.sender.hasTag("kam")) nameColor = "§g";
-    else if(eventData.sender.hasTag("merc")) nameColor = "§2";
-    if(eventData.sender.hasTag("whiteguard")) nameColor = "§9";
-    if(eventData.sender.hasTag("royalty")) nameColor = "§5";
-    if(eventData.sender.hasTag("emperor")) nameColor = "§v§l";
+    if (eventData.sender.hasTag("war")) nameColor = "§4";
+    else if (eventData.sender.hasTag("leg")) nameColor = "§3";
+    else if (eventData.sender.hasTag("kam")) nameColor = "§g";
+    else if (eventData.sender.hasTag("merc")) nameColor = "§2";
+    if (eventData.sender.hasTag("whiteguard")) nameColor = "§9";
+    if (eventData.sender.hasTag("royalty")) nameColor = "§5";
+    if (eventData.sender.hasTag("emperor")) nameColor = "§v§l";
 
-    world.sendMessage({message: `${nameColor}<${eventData.sender.name}>§r ${message}`});
+    world.sendMessage({ rawtext: [{ "text": `${nameColor}<${eventData.sender.name}>§r ${message}` }] });
 });
 
 world.afterEvents.effectAdd.subscribe((eventData) => {
@@ -106,18 +106,90 @@ system.runInterval(() => {
             gameMode: p.gameMode
         };
     });
-    if(players.length === 0) return;
+    if (players.length === 0) return;
     console.info("[MCLINK] [PLAYER LIST]", JSON.stringify({
         players: players
     }));
 }, 3000);
 
 system.afterEvents.scriptEventReceive.subscribe((eventData) => {
-    if(eventData.id !== "mclink:event") return;
-    console.info("[MCLINK] [EVENT]", JSON.stringify({
-        id: eventData.id,
-        initiator: eventData.initiator?.name || eventData.initiator?.nameTag,
-        message: eventData.message,
-        sourceType: eventData.sourceType
-    }));
+    switch (eventData.id) {
+        case "mclink:intrun": {
+            const command = base64ToUtf8String(eventData.message);
+            world.getDimension("overworld").runCommand(command);
+            break;
+        }
+        case "mclink:event": {
+            console.info("[MCLINK] [EVENT]", JSON.stringify({
+                id: eventData.id,
+                initiator: eventData.initiator?.name || eventData.initiator?.nameTag,
+                message: eventData.message,
+                sourceType: eventData.sourceType
+            }));
+            break;
+        }
+        default:
+            break;
+    }
 });
+
+function base64ToUtf8String(base64) {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let buffer = 0;
+  let bits = 0;
+  let bytes = [];
+
+  // Base64 → bytes
+  for (let i = 0; i < base64.length; i++) {
+    const c = base64.charAt(i);
+    if (c === "=") break;
+
+    const v = chars.indexOf(c);
+    if (v === -1) continue;
+
+    buffer = (buffer << 6) | v;
+    bits += 6;
+
+    if (bits >= 8) {
+      bits -= 8;
+      bytes.push((buffer >> bits) & 0xff);
+    }
+  }
+
+  // UTF-8 bytes → JS string
+  let result = "";
+  for (let i = 0; i < bytes.length; ) {
+    const b1 = bytes[i++];
+
+    if (b1 <= 0x7f) {
+      result += String.fromCharCode(b1);
+    } else if (b1 <= 0xdf) {
+      const b2 = bytes[i++];
+      result += String.fromCharCode(
+        ((b1 & 0x1f) << 6) | (b2 & 0x3f)
+      );
+    } else if (b1 <= 0xef) {
+      const b2 = bytes[i++], b3 = bytes[i++];
+      result += String.fromCharCode(
+        ((b1 & 0x0f) << 12) |
+        ((b2 & 0x3f) << 6) |
+        (b3 & 0x3f)
+      );
+    } else {
+      const b2 = bytes[i++], b3 = bytes[i++], b4 = bytes[i++];
+      let cp =
+        ((b1 & 0x07) << 18) |
+        ((b2 & 0x3f) << 12) |
+        ((b3 & 0x3f) << 6) |
+        (b4 & 0x3f);
+
+      cp -= 0x10000;
+      result += String.fromCharCode(
+        0xd800 + (cp >> 10),
+        0xdc00 + (cp & 0x3ff)
+      );
+    }
+  }
+
+  return result;
+}

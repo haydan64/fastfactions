@@ -541,111 +541,217 @@ class BedrockServerController {
     }
   }
 
-  handleLogLine(line, level = 'info') {
+  // handleLogLine(line, level = 'info') {
+  //   const raw = (line || '').trim();
+  //   if (!raw) return;
+
+  //   console.log(`[BDS] ${raw}`);
+
+  //   const timestampMatch = raw.match(/^\[BDS\]\s*\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}:\d{3})\s+([A-Z]+)\]\s*(.*)$/);
+
+  //   let normalized;
+  //   let derivedLevel = level;
+
+  //   if (timestampMatch) {
+  //     const [, , severity, rest] = timestampMatch;
+  //     normalized = rest.trim();
+  //     derivedLevel = (severity || '').toLowerCase() || level;
+  //     this.lastLogLevel = derivedLevel;
+  //   } else {
+  //     normalized = raw.replace(/^\[BDS\]\s*/i, '').trim();
+  //     derivedLevel = this.lastLogLevel || level;
+  //   }
+
+  //   const importantPatterns = [
+  //     { regex: /server (start|starting)/i, reason: 'Server starting' },
+  //     { regex: /server stop/i, reason: 'Server stopping' },
+  //     { regex: /crash/i, reason: 'Server crash detected' },
+  //     { regex: /whitelist/i, reason: 'Whitelist change' },
+  //     { regex: /opped/i, reason: 'Operator change' },
+  //     { regex: /de-?opped/i, reason: 'Operator removed' }
+  //   ];
+
+  //   const important = importantPatterns.some((pattern) => pattern.regex.test(normalized));
+  //   eventBus.emit(SERVER_LOG, { level: derivedLevel, message: normalized, important });
+
+  //   const playerJoinMatch = normalized.match(/Player connected:\s*([^,]+),\s*xuid:\s*([\w-]+)/i);
+  //   if (playerJoinMatch) {
+  //     const [, username, xuid] = playerJoinMatch;
+  //     dbUpdateMinecraftProfileXuid(username, xuid).catch((err) => {
+  //       console.error(`Failed to update XUID for ${username}: ${err.message}`);
+  //     });
+  //   }
+
+  //   if (/server (start|started)/i.test(normalized)) {
+  //     eventBus.emit(SERVER_STATE, { state: 'running', message: 'Bedrock server is online', important: true });
+  //   }
+  //   if (/server stop/i.test(normalized)) {
+  //     eventBus.emit(SERVER_STATE, { state: 'stopping', message: 'Bedrock server stopping', important: true });
+  //   }
+  //   if (/crash/i.test(normalized)) {
+  //     eventBus.emit(SERVER_STATE, { state: 'crashed', message: normalized, important: true });
+  //   }
+
+  //   if (normalized.startsWith('INFO] [Scripting] [MCLINK] [Chat Sent]')) {
+  //     const payload = this.parseJsonPayload(normalized.replace('INFO] [Scripting] [MCLINK] [Chat Sent]', ''));
+  //     if (payload) {
+  //       eventBus.emit(MINECRAFT_EVENT, { event: 'chatSent', content: payload, raw: normalized });
+  //     }
+  //   } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [PLAYER GAMEMODE CHANGE]')) {
+  //     const payload = this.parseJsonPayload(
+  //       normalized.replace('INFO] [Scripting] [MCLINK] [PLAYER GAMEMODE CHANGE]', '')
+  //     );
+  //     if (payload) {
+  //       eventBus.emit(MINECRAFT_EVENT, { event: 'playerGamemodeChange', content: payload, raw: normalized });
+  //     }
+  //   } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [PLAYER PLACE BLOCK]')) {
+  //     const payload = this.parseJsonPayload(
+  //       normalized.replace('INFO] [Scripting] [MCLINK] [PLAYER PLACE BLOCK]', '')
+  //     );
+  //     if (payload) {
+  //       eventBus.emit(MINECRAFT_EVENT, { event: 'playerPlaceBlock', content: payload, raw: normalized });
+  //     }
+  //   } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [PLAYER BREAK BLOCK]')) {
+  //     const payload = this.parseJsonPayload(
+  //       normalized.replace('INFO] [Scripting] [MCLINK] [PLAYER BREAK BLOCK]', '')
+  //     );
+  //     if (payload) {
+  //       eventBus.emit(MINECRAFT_EVENT, { event: 'playerBreakBlock', content: payload, raw: normalized });
+  //     }
+  //   } else if (normalized.startsWith('INFO] [Scripting] [MCLINK][EFFECT ADDED]')) {
+  //     const payload = this.parseJsonPayload(normalized.replace('INFO] [Scripting] [MCLINK][EFFECT ADDED]', ''));
+  //     if (payload) {
+  //       eventBus.emit(MINECRAFT_EVENT, { event: 'effectAdded', content: payload, raw: normalized });
+  //     }
+  //   } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [GAMERULE CHANGED]')) {
+  //     const payload = this.parseJsonPayload(normalized.replace('INFO] [Scripting] [MCLINK] [GAMERULE CHANGED]', ''));
+  //     if (payload) {
+  //       eventBus.emit(MINECRAFT_EVENT, { event: 'gameruleChanged', content: payload, raw: normalized });
+  //     }
+  //   } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [PLAYER DIMENSION CHANGE]')) {
+  //     const payload = this.parseJsonPayload(
+  //       normalized.replace('INFO] [Scripting] [MCLINK] [PLAYER DIMENSION CHANGE]', '')
+  //     );
+  //     if (payload) {
+  //       eventBus.emit(MINECRAFT_EVENT, { event: 'playerDimensionChange', content: payload, raw: normalized });
+  //     }
+  //   } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [ENTITY DIED]')) {
+  //     const payload = this.parseJsonPayload(normalized.replace('INFO] [Scripting] [MCLINK] [ENTITY DIED]', ''));
+  //     if (payload) {
+  //       eventBus.emit(MINECRAFT_EVENT, { event: 'entityDied', content: payload, raw: normalized });
+  //     }
+  //   } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [PLAYER LIST]')) {
+  //     const payload = this.parseJsonPayload(normalized.replace('INFO] [Scripting] [MCLINK] [PLAYER LIST]', ''));
+  //     if (payload) {
+  //       eventBus.emit(MINECRAFT_EVENT, { event: 'playerList', content: payload, raw: normalized });
+  //     }
+  //   }
+  // }
+  handleLogLine(line, sourceLevel = 'info') {
     const raw = (line || '').trim();
     if (!raw) return;
 
-    console.log(`[BDS] ${raw}`);
+    if (sourceLevel === 'error') {
+      console.log(`[BDS-ERROR] ${raw}`);
+      return;
+    }
 
-    const timestampMatch = raw.match(/^\[BDS\]\s*\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}:\d{3})\s+([A-Z]+)\]\s*(.*)$/);
+    if (raw.startsWith('Quit correctly')) {
+      console.log(`[BDS] ${raw}`);
+      eventBus.emit(SERVER_STATE, { state: 'stopped', message: raw, important: true });
+      return;
+    }
 
-    let normalized;
-    let derivedLevel = level;
 
-    if (timestampMatch) {
-      const [, , severity, rest] = timestampMatch;
-      normalized = rest.trim();
-      derivedLevel = (severity || '').toLowerCase() || level;
-      this.lastLogLevel = derivedLevel;
+    const [, timestamp, level, rest = ""] = raw.match(/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}:\d{3})\s+([^\]]+)\](?:\s+(.*))?$/) || [];
+
+    const normalized = rest.trim();
+    if(normalized) {
+      console.log(`[BDS] ${normalized}`);
     } else {
-      normalized = raw.replace(/^\[BDS\]\s*/i, '').trim();
-      derivedLevel = this.lastLogLevel || level;
+      console.log(`[BDS] ${raw}`);
     }
 
-    const importantPatterns = [
-      { regex: /server (start|starting)/i, reason: 'Server starting' },
-      { regex: /server stop/i, reason: 'Server stopping' },
-      { regex: /crash/i, reason: 'Server crash detected' },
-      { regex: /whitelist/i, reason: 'Whitelist change' },
-      { regex: /opped/i, reason: 'Operator change' },
-      { regex: /de-?opped/i, reason: 'Operator removed' }
-    ];
-
-    const important = importantPatterns.some((pattern) => pattern.regex.test(normalized));
-    eventBus.emit(SERVER_LOG, { level: derivedLevel, message: normalized, important });
-
-    const playerJoinMatch = normalized.match(/Player connected:\s*([^,]+),\s*xuid:\s*([\w-]+)/i);
-    if (playerJoinMatch) {
-      const [, username, xuid] = playerJoinMatch;
-      dbUpdateMinecraftProfileXuid(username, xuid).catch((err) => {
-        console.error(`Failed to update XUID for ${username}: ${err.message}`);
-      });
-    }
-
-    if (/server (start|started)/i.test(normalized)) {
+    if (normalized.startsWith('Server started.')) {
       eventBus.emit(SERVER_STATE, { state: 'running', message: 'Bedrock server is online', important: true });
-    }
-    if (/server stop/i.test(normalized)) {
+      return;
+    } else if (normalized.startsWith('Starting Server')) {
+      eventBus.emit(SERVER_STATE, { state: 'starting', message: 'Bedrock server starting', important: true });
+      return;
+    } else if (normalized.startsWith('Stopping server...')) {
       eventBus.emit(SERVER_STATE, { state: 'stopping', message: 'Bedrock server stopping', important: true });
-    }
-    if (/crash/i.test(normalized)) {
-      eventBus.emit(SERVER_STATE, { state: 'crashed', message: normalized, important: true });
+      return;
+    } else if (normalized.startsWith('Player connected:')) {
+      const [, username, xuid] = normalized.match(/^Player connected:\s*(.+?),\s*xuid:\s*([0-9]+)\s*$/) || [];
+      if (username && xuid) {
+        dbUpdateMinecraftProfileXuid(username, xuid).catch((err) => {
+          console.error(`Failed to update XUID for ${username}: ${err.message}`);
+        });
+      }
+      return;
+    } else if (normalized.startsWith('Player Spawned:')) {
+      const [, username, xuid, pfid] = normalized.match(/^Player Spawned:\s*(.+?)\s+xuid:\s*([0-9]+),\s*pfid:\s*([0-9A-Fa-f]+)\s*$/) || [];
+      if (username && xuid && pfid) {
+        eventBus.emit(MINECRAFT_EVENT, { event: 'playerJoin', content: { username, xuid, pfid } });
+      }
+      return;
+    } else if (normalized.startsWith('Player disconnected:')) {
+      const [, username, xuid, pfid] = normalized.match(/^Player disconnected:\s*(.+?),\s*xuid:\s*([0-9]+),\s*pfid:\s*([0-9A-Fa-f]+)\s*$/) || [];
+      if (username && xuid && pfid) {
+        eventBus.emit(MINECRAFT_EVENT, { event: 'playerLeave', content: { username, xuid } });
+      }
+      return;
     }
 
-    if (normalized.startsWith('INFO] [Scripting] [MCLINK] [Chat Sent]')) {
-      const payload = this.parseJsonPayload(normalized.replace('INFO] [Scripting] [MCLINK] [Chat Sent]', ''));
-      if (payload) {
-        eventBus.emit(MINECRAFT_EVENT, { event: 'chatSent', content: payload, raw: normalized });
-      }
-    } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [PLAYER GAMEMODE CHANGE]')) {
-      const payload = this.parseJsonPayload(
-        normalized.replace('INFO] [Scripting] [MCLINK] [PLAYER GAMEMODE CHANGE]', '')
-      );
-      if (payload) {
-        eventBus.emit(MINECRAFT_EVENT, { event: 'playerGamemodeChange', content: payload, raw: normalized });
-      }
-    } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [PLAYER PLACE BLOCK]')) {
-      const payload = this.parseJsonPayload(
-        normalized.replace('INFO] [Scripting] [MCLINK] [PLAYER PLACE BLOCK]', '')
-      );
-      if (payload) {
-        eventBus.emit(MINECRAFT_EVENT, { event: 'playerPlaceBlock', content: payload, raw: normalized });
-      }
-    } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [PLAYER BREAK BLOCK]')) {
-      const payload = this.parseJsonPayload(
-        normalized.replace('INFO] [Scripting] [MCLINK] [PLAYER BREAK BLOCK]', '')
-      );
-      if (payload) {
-        eventBus.emit(MINECRAFT_EVENT, { event: 'playerBreakBlock', content: payload, raw: normalized });
-      }
-    } else if (normalized.startsWith('INFO] [Scripting] [MCLINK][EFFECT ADDED]')) {
-      const payload = this.parseJsonPayload(normalized.replace('INFO] [Scripting] [MCLINK][EFFECT ADDED]', ''));
-      if (payload) {
-        eventBus.emit(MINECRAFT_EVENT, { event: 'effectAdded', content: payload, raw: normalized });
-      }
-    } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [GAMERULE CHANGED]')) {
-      const payload = this.parseJsonPayload(normalized.replace('INFO] [Scripting] [MCLINK] [GAMERULE CHANGED]', ''));
-      if (payload) {
-        eventBus.emit(MINECRAFT_EVENT, { event: 'gameruleChanged', content: payload, raw: normalized });
-      }
-    } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [PLAYER DIMENSION CHANGE]')) {
-      const payload = this.parseJsonPayload(
-        normalized.replace('INFO] [Scripting] [MCLINK] [PLAYER DIMENSION CHANGE]', '')
-      );
-      if (payload) {
-        eventBus.emit(MINECRAFT_EVENT, { event: 'playerDimensionChange', content: payload, raw: normalized });
-      }
-    } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [ENTITY DIED]')) {
-      const payload = this.parseJsonPayload(normalized.replace('INFO] [Scripting] [MCLINK] [ENTITY DIED]', ''));
-      if (payload) {
-        eventBus.emit(MINECRAFT_EVENT, { event: 'entityDied', content: payload, raw: normalized });
-      }
-    } else if (normalized.startsWith('INFO] [Scripting] [MCLINK] [PLAYER LIST]')) {
-      const payload = this.parseJsonPayload(normalized.replace('INFO] [Scripting] [MCLINK] [PLAYER LIST]', ''));
-      if (payload) {
-        eventBus.emit(MINECRAFT_EVENT, { event: 'playerList', content: payload, raw: normalized });
-      }
+    const [, mclinkEvent, mclinkEventData] = normalized.match(
+      /^\[Scripting\]\s+\[MCLINK\]\s+\[([^\]]+)\]\s*(.*)$/
+    ) || [];
+
+    if (mclinkEvent) {
+      const data = mclinkEventData ? this.parseJsonPayload(mclinkEventData) : null;
+      switch (mclinkEvent) {
+        case 'WORLD LOAD':
+          eventBus.emit(MINECRAFT_EVENT, { event: 'worldLoad' });
+          break;
+        case 'WEATHER CHANGE':
+          eventBus.emit(MINECRAFT_EVENT, { event: 'weatherChange', content: data });
+          break;
+        case 'CHAT SENT':
+          eventBus.emit(MINECRAFT_EVENT, { event: 'chatSent', content: data });
+          break;
+        case 'PLAYER GAMEMODE CHANGE':
+          eventBus.emit(MINECRAFT_EVENT, { event: 'playerGamemodeChange', content: data });
+          break;
+        case 'PLAYER PLACE BLOCK':
+          eventBus.emit(MINECRAFT_EVENT, { event: 'playerPlaceBlock', content: data });
+          break;
+        case 'PLAYER BREAK BLOCK':
+          eventBus.emit(MINECRAFT_EVENT, { event: 'playerBreakBlock', content: data });
+          break;
+        case 'EFFECT ADDED':
+          eventBus.emit(MINECRAFT_EVENT, { event: 'effectAdded', content: data });
+          break;
+        case 'GAMERULE CHANGED':
+          eventBus.emit(MINECRAFT_EVENT, { event: 'gameruleChanged', content: data });
+          break;
+        case 'PLAYER DIMENSION CHANGE':
+          eventBus.emit(MINECRAFT_EVENT, { event: 'playerDimensionChange', content: data });
+          break;
+        case 'ENTITY DIED':
+          eventBus.emit(MINECRAFT_EVENT, { event: 'entityDied', content: data });
+          break;
+        case 'PLAYER LIST':
+          eventBus.emit(MINECRAFT_EVENT, { event: 'playerList', content: data });
+          break;
+        case 'EVENT':
+          eventBus.emit(MINECRAFT_EVENT, { event: 'event', content: data });
+          break;
+        default:
+          break;
+      };
     }
+
+
   }
 
   async handleExternalCommand(payload = {}) {
@@ -665,6 +771,9 @@ class BedrockServerController {
         return this.update(payload.details);
       case 'command':
         return this.sendCommand(command);
+      case 'internal':// This runs the command from inside the bds, instead of on the server process stdin.
+        // Use for commands with characters outside the ascii range, as it sends via base64 encoding.
+        return this.sendCommand(`scriptevent mclink:intrun ${Buffer.from(command, "utf8").toString("base64")}`);
       case 'allowlist:add':
         return this.updateAllowlist(payload);
       case 'allowlist:remove':

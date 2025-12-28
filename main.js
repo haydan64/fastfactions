@@ -4,6 +4,7 @@ const createDiscordBot = require('./discordbot/bot');
 const createServer = require('./mc/server');
 const eventBus = require('./eventBus');
 const { runMigrations } = require('./database/database');
+require('dotenv').config();
 
 function loadModules(context) {
   const modulesDir = path.join(__dirname, 'modules');
