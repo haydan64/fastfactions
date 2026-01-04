@@ -52,7 +52,7 @@ app.post("/mclink/unwhitelist", (req, res) => {
       initiator: payload.initiator
     }
   });
-  res.status(200).json({ ok: true });
+  res.status(202).json({ ok: true });
 });
 
 // POST /mclink/event
