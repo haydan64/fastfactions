@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const api = require("./api/web");
 const createDiscordBot = require('./discordbot/bot');
 const createServer = require('./mc/server');
 const eventBus = require('./eventBus');
@@ -32,8 +33,21 @@ async function bootstrap() {
   await server.start();
 
   process.on('SIGINT', () => {
-    eventBus.emit(eventBus.EVENTS.SERVER_COMMAND, { action: 'stop' });
-    process.exit(0);
+    if (server.process) {
+      eventBus.on(eventBus.EVENTS.SERVER_STATE, ({ state, message }) => {
+        if (state === "stopped" && message === "Bedrock server stopped") {
+          process.exit(0);
+        }
+      });
+      eventBus.emit(eventBus.EVENTS.SERVER_COMMAND, { action: 'stop' });
+      console.log("Waiting for server to shut down correctly...")
+      setTimeout(() => {
+        console.log("Shutdown Timeout: Forcing Shutdown...")
+        process.exit(0);
+      }, 15000);
+    } else {
+      process.exit(0);
+    }
   });
 }
 

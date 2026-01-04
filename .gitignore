@@ -39,3 +39,6 @@ Thumbs.db
 /discordbot/.env
 /discordbot/messages.txt
 
+# preset messages (keep directory, ignore contents)
+presetMessages/*
+!presetMessages/.gitkeep

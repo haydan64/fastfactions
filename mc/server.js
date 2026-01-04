@@ -107,12 +107,29 @@ class BedrockServerController {
   constructor() {
     this.process = null;
     this.hasCrashed = false;
+    this.stopping = false;
     this.lastLogLevel = 'info';
     eventBus.on(SERVER_COMMAND, (payload) =>
       this.handleExternalCommand(payload).catch((err) =>
         eventBus.emit(SERVER_LOG, { level: 'error', message: `Server command failed: ${err.message}` })
       )
     );
+    eventBus.on(MINECRAFT_EVENT, ({ event, content }) => {
+      switch (event) {
+        case ("unwhitelist"): {
+          this.removeAllowlist(content.target);
+          break;
+        }
+        case ("reload"): {
+          this.handleExternalCommand({
+            action: "reload"
+          }).catch((err) =>
+            eventBus.emit(SERVER_LOG, { level: 'error', message: `Server command failed: ${err.message}` })
+          );
+          break;
+        }
+      }
+    })
   }
 
   cleanLogMessage(message = '') {
@@ -386,13 +403,17 @@ class BedrockServerController {
     if (process.platform !== 'win32') {
       spawnEnv.LD_LIBRARY_PATH = SERVER_ROOT;
     }
-    const spawnOptions = { cwd: SERVER_ROOT, env: spawnEnv };
-    if (process.platform === 'win32') {
-      spawnOptions.shell = true;
-    }
+    const spawnOptions = {
+      cwd: SERVER_ROOT,
+      env: spawnEnv,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: false,
+      detached: process.platform === "win32"
+    };
 
-    const command = process.platform === 'win32' ? `"${binaryPath}"` : binaryPath;
-    this.process = spawn(command, [], spawnOptions);
+    // const command = process.platform === 'win32' ? `"${binaryPath}"` : binaryPath;
+    // this.process = spawn(command, [], spawnOptions);
+    this.process = spawn(binaryPath, [], spawnOptions);
 
     this.process.stdout.on('data', (data) => {
       data
@@ -401,6 +422,12 @@ class BedrockServerController {
         .filter(Boolean)
         .forEach((line) => this.handleLogLine(line));
     });
+
+    this.process.stdin?.on('error', (err) => {
+      if (err?.code === 'EPIPE') return; // expected during shutdown
+      eventBus.emit(SERVER_LOG, { level: 'warn', message: `BDS stdin error: ${err.message}` });
+    });
+
 
     this.process.stderr.on('data', (data) => {
       const line = data.toString();
@@ -417,16 +444,27 @@ class BedrockServerController {
     });
 
     this.process.on('exit', (code, signal) => {
-      const crashed = code !== 0 && signal !== 'SIGTERM';
+      const CTRL_C_EXIT = 0xC000013A; // 3221225786
+
+      const stoppedByCtrlC = code === CTRL_C_EXIT;
+      const crashed = !this.stopping && code !== 0;
+
       const message = crashed
-        ? `Bedrock server crashed with code ${code || 'unknown'}`
-        : 'Bedrock server stopped';
+        ? `Bedrock server crashed with code ${code ?? 'unknown'}`
+        : stoppedByCtrlC
+          ? 'Bedrock server stopped (Control-C interrupt)'
+          : 'Bedrock server stopped';
+
       eventBus.emit(SERVER_STATE, { state: 'stopped', message, important: true });
+
       if (crashed) {
         eventBus.emit(SERVER_LOG, { level: 'error', message, important: true });
       }
+
       this.process = null;
+      this.stopping = false;
     });
+
   }
 
   stop() {
@@ -434,6 +472,8 @@ class BedrockServerController {
       eventBus.emit(SERVER_STATE, { state: 'stopped', message: 'Server not running' });
       return Promise.resolve();
     }
+
+    this.stopping = true;
 
     const currentProcess = this.process;
     let stopTimeout;
@@ -518,13 +558,45 @@ class BedrockServerController {
   }
 
   sendCommand(command) {
-    if (!this.process) {
+    const p = this.process;
+    if (!p) {
       eventBus.emit(SERVER_LOG, { level: 'warn', message: `Cannot send command, server offline: ${command}` });
-      return;
+      return false;
     }
-    this.process.stdin.write(`${command}\n`);
-    eventBus.emit(SERVER_LOG, { level: 'info', message: `Sent command: ${command}` });
+
+    const stdin = p.stdin;
+    if (!stdin || stdin.destroyed || stdin.writableEnded) {
+      eventBus.emit(SERVER_LOG, { level: 'warn', message: `Cannot send command, stdin closed: ${command}` });
+      return false;
+    }
+
+    // If the process has already exited (or is exiting), don't write.
+    if (p.killed || p.exitCode !== null) {
+      eventBus.emit(SERVER_LOG, { level: 'warn', message: `Cannot send command, process exiting/exited: ${command}` });
+      return false;
+    }
+
+    try {
+      // Use \r\n on Windows console apps; harmless elsewhere.
+      stdin.write(`${command}\r\n`, (err) => {
+        if (err) {
+          // EPIPE is normal during shutdown; don't crash the whole wrapper.
+          if (err.code !== 'EPIPE') {
+            eventBus.emit(SERVER_LOG, { level: 'warn', message: `Failed to send command "${command}": ${err.message}` });
+          }
+        }
+      });
+
+      eventBus.emit(SERVER_LOG, { level: 'info', message: `Sent command: ${command}` });
+      return true;
+    } catch (err) {
+      if (err?.code !== 'EPIPE') {
+        eventBus.emit(SERVER_LOG, { level: 'warn', message: `Failed to send command "${command}": ${err.message}` });
+      }
+      return false;
+    }
   }
+
 
   parseJsonPayload(normalized = '') {
     const jsonMatch = normalized.match(/\{.*\}$/);
@@ -658,15 +730,17 @@ class BedrockServerController {
 
     if (raw.startsWith('Quit correctly')) {
       console.log(`[BDS] ${raw}`);
-      eventBus.emit(SERVER_STATE, { state: 'stopped', message: raw, important: true });
+      eventBus.emit(SERVER_LOG, { level: 'info', message: raw, important: true });
+      // Do NOT emit SERVER_STATE stopped here; wait for the real 'exit' event.
       return;
     }
+
 
 
     const [, timestamp, level, rest = ""] = raw.match(/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}:\d{3})\s+([^\]]+)\](?:\s+(.*))?$/) || [];
 
     const normalized = rest.trim();
-    if(normalized) {
+    if (normalized) {
       console.log(`[BDS] ${normalized}`);
     } else {
       console.log(`[BDS] ${raw}`);
@@ -702,56 +776,6 @@ class BedrockServerController {
       }
       return;
     }
-
-    const [, mclinkEvent, mclinkEventData] = normalized.match(
-      /^\[Scripting\]\s+\[MCLINK\]\s+\[([^\]]+)\]\s*(.*)$/
-    ) || [];
-
-    if (mclinkEvent) {
-      const data = mclinkEventData ? this.parseJsonPayload(mclinkEventData) : null;
-      switch (mclinkEvent) {
-        case 'WORLD LOAD':
-          eventBus.emit(MINECRAFT_EVENT, { event: 'worldLoad' });
-          break;
-        case 'WEATHER CHANGE':
-          eventBus.emit(MINECRAFT_EVENT, { event: 'weatherChange', content: data });
-          break;
-        case 'CHAT SENT':
-          eventBus.emit(MINECRAFT_EVENT, { event: 'chatSent', content: data });
-          break;
-        case 'PLAYER GAMEMODE CHANGE':
-          eventBus.emit(MINECRAFT_EVENT, { event: 'playerGamemodeChange', content: data });
-          break;
-        case 'PLAYER PLACE BLOCK':
-          eventBus.emit(MINECRAFT_EVENT, { event: 'playerPlaceBlock', content: data });
-          break;
-        case 'PLAYER BREAK BLOCK':
-          eventBus.emit(MINECRAFT_EVENT, { event: 'playerBreakBlock', content: data });
-          break;
-        case 'EFFECT ADDED':
-          eventBus.emit(MINECRAFT_EVENT, { event: 'effectAdded', content: data });
-          break;
-        case 'GAMERULE CHANGED':
-          eventBus.emit(MINECRAFT_EVENT, { event: 'gameruleChanged', content: data });
-          break;
-        case 'PLAYER DIMENSION CHANGE':
-          eventBus.emit(MINECRAFT_EVENT, { event: 'playerDimensionChange', content: data });
-          break;
-        case 'ENTITY DIED':
-          eventBus.emit(MINECRAFT_EVENT, { event: 'entityDied', content: data });
-          break;
-        case 'PLAYER LIST':
-          eventBus.emit(MINECRAFT_EVENT, { event: 'playerList', content: data });
-          break;
-        case 'EVENT':
-          eventBus.emit(MINECRAFT_EVENT, { event: 'event', content: data });
-          break;
-        default:
-          break;
-      };
-    }
-
-
   }
 
   async handleExternalCommand(payload = {}) {
@@ -759,6 +783,11 @@ class BedrockServerController {
     switch (action) {
       case 'restart':
         return this.restart();
+      case 'reload':
+        //using this reload action will copy over the mclink pack, then run the reload command.
+        this.ensureLinkAddon();
+        this.sendCommand('reload');
+        return
       case 'stop':
         return this.stop();
       case 'forceStop':

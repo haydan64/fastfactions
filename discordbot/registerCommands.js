@@ -17,7 +17,7 @@ async function registerCommands(commands) {
 }
 
 async function main() {
-  require('dotenv').config({ path: path.join(__dirname, '../env') });
+  require('dotenv').config();
   const commands = loadCommands();
   await registerCommands(commands);
 }

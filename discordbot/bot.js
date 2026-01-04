@@ -19,12 +19,13 @@ const { registerApplicationFlow } = require('./applicationFlow');
 const botConfig = require('./botConfig.json');
 
 const {
-  EVENTS: { SERVER_LOG, SERVER_STATE }
+  EVENTS: { SERVER_LOG, SERVER_STATE, MINECRAFT_EVENT }
 } = eventBus;
 
 require('dotenv').config({ path: path.join(__dirname, '../env') });
 
 const SERVER_LOG_CHANNEL = '1441903391830970489';
+const SERVER_ADMIN_CHANNEL = '757584678671876101';
 const DISCORD_LOG_CHANNEL = '757597730666315837';
 const JOIN_LEAVE_CHANNEL = botConfig?.channels?.joinLeave;
 const WAITING_ROOM_CHANNEL = botConfig?.channels?.waitingRoom;
@@ -202,6 +203,20 @@ function registerServerEventHandlers(client) {
     const icon = state === 'running' ? '✅' : state === 'stopped' ? '🛑' : '⚙️';
     sendToChannel(client, SERVER_LOG_CHANNEL, `${icon} ${message}`);
   });
+
+  eventBus.on(MINECRAFT_EVENT, ({event, content}) => {
+    switch(event) {
+      case("log"): {
+        if(!content.discordLog) break;
+        sendToChannel(client, SERVER_LOG_CHANNEL, `<a:grass_animated:923831993152729168> ${content.message}`);
+        break;
+      }
+      case("unwhitelist"): {
+        sendToChannel(client, SERVER_ADMIN_CHANNEL, `⚠️ ${content.initiator || "Unknown"} Unwhitelisted ${content.target}!`)
+        break;
+      }
+    }
+  })
 }
 
 function buildCommandContext() {
