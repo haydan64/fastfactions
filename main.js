@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const api = require("./api/web");
-const {client, start} = require('./discordbot/bot');
+const { client, start } = require('./discordbot/bot');
 const createServer = require('./mc/server');
 const eventBus = require('./eventBus');
 const { runMigrations } = require('./database/database');
@@ -31,7 +31,7 @@ async function bootstrap() {
   await start();
   await server.start();
 
-  process.on('SIGINT', () => {
+  function gracefullShutdown(reason, err) {
     if (server.process) {
       eventBus.on(eventBus.EVENTS.SERVER_STATE, ({ state, message }) => {
         if (state === "stopped" && message === "Bedrock server stopped") {
@@ -47,7 +47,14 @@ async function bootstrap() {
     } else {
       process.exit(0);
     }
-  });
+  }
+
+  process.on('SIGINT', gracefullShutdown);
+  process.on('SIGTERM', gracefullShutdown);
+  process.on("uncaughtException", (err) => gracefulShutdown("uncaughtException", err));
+  process.on("unhandledRejection", (reason) =>
+    gracefulShutdown("unhandledRejection", reason instanceof Error ? reason : new Error(String(reason)))
+  );
 }
 
 bootstrap().catch((err) => {
