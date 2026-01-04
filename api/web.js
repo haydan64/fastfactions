@@ -1,7 +1,7 @@
 const express = require("express");
 const eventBus = require("../eventBus");
 
-const {MINECRAFT_EVENT} = eventBus.EVENTS
+const { MINECRAFT_EVENT } = eventBus.EVENTS
 
 const PORT = 8383;
 
@@ -36,30 +36,23 @@ app.post("/mclink/unwhitelist", (req, res) => {
 
   if (!payload.target) {
     console.warn("/mclink/unwhitelist", "payload should contain target.");
-    return;
+    return res.status(400).json({ ok: false, error: "payload should contain target." });
+
   }
   if (!payload.initiator) {
     console.warn("/mclink/unwhitelist", "payload should contain initiator.");
-    return;
-  }
+    return res.status(400).json({ ok: false, error: "payload should contain initiator." });
 
-  const errorTimeout = setTimeout(() => {
-    res.status(500).json({ ok: false, error: "Evenbus took too long to respond." });
-    console.warn("ERROR: Eventbus took too long to respond.")
-  }, 5000)
+  }
 
   eventBus.emit(MINECRAFT_EVENT, {
     event: "unwhitelist",
-    target: payload.target,
-    initiator: payload.initiator
-  }, (err, result) => {
-    errorTimeout.close();
-    if(err) {
-      res.status(500).json({ ok: false, error: err});
-      return;
+    content: {
+      target: payload.target,
+      initiator: payload.initiator
     }
-    res.status(200).json({ ok: true, result});
   });
+  res.status(200).json({ ok: true });
 });
 
 // POST /mclink/event
