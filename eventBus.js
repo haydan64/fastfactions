@@ -6,7 +6,8 @@ const EVENTS = {
   SERVER_COMMAND: 'server:command',
   SERVER_BACKUP: 'server:backup',
   DISCORD_LOG: 'discord:log',
-  MINECRAFT_EVENT: 'minecraft:event'
+  MINECRAFT_EVENT: 'minecraft:event',
+  DISCORD_EVENT: 'discord:event'
 };
 
 const eventBus = new EventEmitter({ captureRejections: true });

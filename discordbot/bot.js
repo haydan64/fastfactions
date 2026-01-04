@@ -19,7 +19,7 @@ const { registerApplicationFlow } = require('./applicationFlow');
 const botConfig = require('./botConfig.json');
 
 const {
-  EVENTS: { SERVER_LOG, SERVER_STATE, MINECRAFT_EVENT }
+  EVENTS: { SERVER_LOG, SERVER_STATE, MINECRAFT_EVENT, DISCORD_EVENT }
 } = eventBus;
 
 require('dotenv').config({ path: path.join(__dirname, '../env') });
@@ -160,6 +160,7 @@ function registerDiscordAuditHandlers(client) {
         allowedMentions: { users: [member.id] }
       });
     }
+
   });
 
   client.on('guildMemberUpdate', (oldMember, newMember) => {
@@ -204,14 +205,14 @@ function registerServerEventHandlers(client) {
     sendToChannel(client, SERVER_LOG_CHANNEL, `${icon} ${message}`);
   });
 
-  eventBus.on(MINECRAFT_EVENT, ({event, content}) => {
-    switch(event) {
-      case("log"): {
-        if(!content.discordLog) break;
+  eventBus.on(MINECRAFT_EVENT, ({ event, content }) => {
+    switch (event) {
+      case ("log"): {
+        if (!content.discordLog) break;
         sendToChannel(client, SERVER_LOG_CHANNEL, `<a:grass_animated:923831993152729168> ${content.message}`);
         break;
       }
-      case("unwhitelist"): {
+      case ("unwhitelist"): {
         sendToChannel(client, SERVER_ADMIN_CHANNEL, `⚠️ ${content.initiator || "Unknown"} Unwhitelisted ${content.target}!`)
         break;
       }
@@ -262,7 +263,8 @@ function registerCommandHandlers(client, commands) {
   });
 }
 
-module.exports = function createDiscordBot() {
+
+function createDiscordBot() {
   const client = new Client({
     intents: [
       GatewayIntentBits.Guilds,
@@ -311,3 +313,12 @@ module.exports = function createDiscordBot() {
     }
   };
 };
+
+const {client, start} = createDiscordBot();
+
+
+module.exports = {
+  client,
+  start,
+  sendToChannel
+}

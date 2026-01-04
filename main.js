@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const api = require("./api/web");
-const createDiscordBot = require('./discordbot/bot');
+const {client, start} = require('./discordbot/bot');
 const createServer = require('./mc/server');
 const eventBus = require('./eventBus');
 const { runMigrations } = require('./database/database');
@@ -24,12 +24,11 @@ function loadModules(context) {
 
 async function bootstrap() {
   const server = createServer();
-  const bot = createDiscordBot();
 
-  loadModules({ server, bot, eventBus });
+  loadModules({ server, client });
 
   await runMigrations();
-  await bot.start();
+  await start();
   await server.start();
 
   process.on('SIGINT', () => {
