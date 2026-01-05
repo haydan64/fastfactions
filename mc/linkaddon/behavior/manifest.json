@@ -57,14 +57,6 @@
     {
       "module_name": "@minecraft/server-admin",
       "version": "beta"
-    },
-    {
-      "uuid": "e304a4eb-f0a0-4979-ac17-7b0f46a555c8",
-      "version": [
-        0,
-        10,
-        3
-      ]
     }
   ]
 }
