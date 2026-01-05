@@ -106,8 +106,7 @@ function formatDeathMessage(content = {}) {
   return `**${name}** ${action}${killerText}.`.trim();
 }
 
-module.exports = function registerChatLinkModule({ bot }) {
-  const client = bot?.client;
+module.exports = function registerChatLinkModule({ client }) {
 
   eventBus.on(MINECRAFT_EVENT, async ({ event, content }) => {
     if (event === 'chatSent' && content?.sender) {
