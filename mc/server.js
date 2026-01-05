@@ -128,6 +128,22 @@ class BedrockServerController {
           );
           break;
         }
+        case ("stop"): {
+          this.handleExternalCommand({
+            action:"stop"
+          }).catch((err) => {
+            eventBus.emit(SERVER_LOG, { level: 'error', message: `Server command failed: ${err.message}`});
+          });
+          break;
+        }
+        case ("restart"): {
+          this.handleExternalCommand({
+            action:"restart"
+          }).catch((err) => {
+            eventBus.emit(SERVER_LOG, { level: 'error', message: `Server command failed: ${err.message}`});
+          });
+          break;
+        }
       }
     })
   }
