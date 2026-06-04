@@ -14,6 +14,39 @@ const connectionOptions = {
 
 const pool = new Pool(connectionOptions);
 
+
+//TODO: Rename all profile grabbers from Minecraft profile to Player profile, as the database only keeps one type of profile.
+//TODO: Add the user's PID to the database.
+//TODO: rename the column "username" to "mc_username"
+
+//TODO: add the tables entity_types, block_types, item_types, dimension_types. Each with columns type_id (string), id (number)
+/**TODO: add the following tables:
+ * player_kills {
+ *    player_id (id from players)
+ *    entity_id (id from entity_types table)
+ *    posx (float)
+ *    posy (float)
+ *    posz (float)
+ *    dimension (id from dimension_types)
+ *    dead_name (string)
+ *    cause (string)
+ * }
+ * player_blocks {
+ *    player_id (id from players)
+ *    block_id (id from block_types table)
+ *    posx (int)
+ *    posy (int)
+ *    posz (int)
+ *    dimension (id from dimension_types)
+ *    action (int (0-mined, 1-placed, 2-interaction))
+ * }
+ * economy_balances {
+ *    player_id (id from players table)
+ *    balance (int)
+ * }
+ * 
+ */
+
 async function runMigrations() {
   const client = await pool.connect();
   try {
@@ -190,6 +223,7 @@ async function updateMinecraftProfileXuid(username, xuid) {
     [username, xuid]
   );
 }
+
 
 async function getMinecraftProfileByUsername(username) {
   if (!username) return null;

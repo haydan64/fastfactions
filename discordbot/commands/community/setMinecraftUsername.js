@@ -12,7 +12,8 @@ module.exports = {
       return;
     }
 
-    await upsertMinecraftProfile(interaction.user.id, username);
+    
+    console.log("Player set gamertag", await upsertMinecraftProfile(interaction.user.id, username));
     await interaction.reply({
       content: `Saved your Minecraft username as **${username}**. We'll capture your XUID when you join the server.`,
       ephemeral: true
