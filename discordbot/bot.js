@@ -6,6 +6,7 @@ const {
   upsertMinecraftProfile,
   getMinecraftProfileByDiscordId,
   getMinecraftProfileByUsername,
+  clearMinecraftProfileXuid,
   getAllowlistEntryByName,
   saveApplicationResponse,
   getApplicationResponses,
@@ -17,6 +18,7 @@ const {
 } = require('../database/database');
 const { loadCommands } = require('./loadCommands');
 const { registerApplicationFlow } = require('./applicationFlow');
+const { registerUsernameChangeReview } = require('./usernameChangeReview');
 const botConfig = require('./botConfig.json');
 
 const {
@@ -231,6 +233,7 @@ function buildCommandContext() {
     upsertMinecraftProfile,
     getMinecraftProfileByDiscordId,
     getMinecraftProfileByUsername,
+    clearMinecraftProfileXuid,
     getAllowlistEntryByName,
     saveApplicationResponse,
     getApplicationResponses,
@@ -297,6 +300,14 @@ function createDiscordBot() {
     ensureRole,
     roleIds: ROLE_IDS,
     rolesConfig: botConfig.roles
+  });
+  registerUsernameChangeReview(client, {
+    ensureRole,
+    roleIds: ROLE_IDS,
+    upsertMinecraftProfile,
+    getMinecraftProfileByUsername,
+    eventBus,
+    events: eventBus.EVENTS
   });
   registerServerEventHandlers(client);
 

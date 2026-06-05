@@ -231,6 +231,20 @@ async function updateMinecraftProfileXuid(username, xuid) {
   );
 }
 
+async function clearMinecraftProfileXuid(discordId) {
+  if (!discordId) return null;
+  const result = await pool.query(
+    `
+    UPDATE players
+    SET xuid = NULL, updated_at = NOW()
+    WHERE discord_id = $1
+    RETURNING *;
+  `,
+    [discordId]
+  );
+  return result.rows[0] || null;
+}
+
 
 async function getMinecraftProfileByUsername(username) {
   if (!username) return null;
@@ -379,6 +393,7 @@ module.exports = {
   upsertMinecraftProfile,
   getMinecraftProfileByDiscordId,
   updateMinecraftProfileXuid,
+  clearMinecraftProfileXuid,
   getMinecraftProfileByUsername,
   getAllowlistEntries,
   getAllowlistEntryByName,
