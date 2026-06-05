@@ -63,7 +63,7 @@ the filename should not include .json
 allows admins to send a message to the minecraft server.
 
 /stopbds
-This command allows developers to stop the minecraft server for maintenance.
+This command allows admin to stop the minecraft server for maintenance.
 
 /updateplayer
 
