@@ -121,7 +121,8 @@ system.runInterval(() => {
         name: p.name,
         location: p.location,
         dimension: p.dimension.id,
-        gameMode: p.gameMode
+        gameMode: p.gameMode,
+        tags: p.getTags()
     }));
 
     if (players.length === 0) return;
