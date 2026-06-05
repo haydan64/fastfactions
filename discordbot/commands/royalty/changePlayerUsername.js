@@ -1,9 +1,14 @@
 const { SlashCommandBuilder } = require('discord.js');
 const {
   isDuplicateMinecraftUsernameError,
-  saveProfileAndQueueAllowlist
+  requestAllowlistRemoval,
+  requestAllowlistUpdate
 } = require('../minecraftProfileAllowlist');
 const { safeReply } = require('../interactionResponses');
+
+function sameUsername(a, b) {
+  return Boolean(a && b && a.toLowerCase() === b.toLowerCase());
+}
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -13,7 +18,16 @@ module.exports = {
     .addStringOption((opt) => opt.setName('username').setDescription('New Minecraft username').setRequired(true)),
   async execute(
     interaction,
-    { ensureRole, roleIds, upsertMinecraftProfile, getMinecraftProfileByDiscordId, eventBus, events, formatUser }
+    {
+      ensureRole,
+      roleIds,
+      upsertMinecraftProfile,
+      getMinecraftProfileByDiscordId,
+      getMinecraftProfileByUsername,
+      eventBus,
+      events,
+      formatUser
+    }
   ) {
     const allowed = await ensureRole(interaction, [roleIds.ROYALTY], 'Only Royalty can change player usernames.');
     if (!allowed) return;
@@ -27,15 +41,36 @@ module.exports = {
 
     await interaction.deferReply({ ephemeral: true });
 
-    let result;
+    const previousProfile = await getMinecraftProfileByDiscordId(user.id);
+    const conflictingProfile = await getMinecraftProfileByUsername(username);
+    if (conflictingProfile && conflictingProfile.discord_id !== user.id) {
+      await safeReply(interaction, {
+        content: `**${username}** is already linked to another Discord user.`,
+      });
+      return;
+    }
+
+    const usernameChanged = previousProfile?.username && !sameUsername(previousProfile.username, username);
+    let removalResult = null;
     try {
-      result = await saveProfileAndQueueAllowlist({
-        discordId: user.id,
-        username,
-        getMinecraftProfileByDiscordId,
-        upsertMinecraftProfile,
-        eventBus,
-        events
+      if (usernameChanged) {
+        removalResult = await requestAllowlistRemoval(eventBus, events, previousProfile.username);
+      }
+
+      const result = await upsertMinecraftProfile(user.id, username, {
+        clearXuidOnUsernameChange: true
+      });
+      const profile = result?.rows?.[0] || result;
+      const allowlistResult = await requestAllowlistUpdate(eventBus, events, profile);
+
+      const removedOldUsername = usernameChanged
+        ? ` ${removalResult?.message || `Removed old allowlist entry for ${previousProfile.username}.`} Cleared the saved XUID.`
+        : '';
+
+      await safeReply(interaction, {
+        content:
+          `Updated Minecraft username for ${formatUser(user)} to **${profile.username}**. ${allowlistResult.message}` +
+          removedOldUsername,
       });
     } catch (err) {
       if (isDuplicateMinecraftUsernameError(err)) {
@@ -47,16 +82,5 @@ module.exports = {
 
       throw err;
     }
-
-    const removedOldUsername = result.removedOldUsername
-      ? ` ${result.removalResult?.message || `Removed old allowlist entry for ${result.removedOldUsername}.`} Cleared the saved XUID.`
-      : '';
-    const allowlistMessage = result.allowlistResult?.message || 'Allowlist update completed.';
-
-    await safeReply(interaction, {
-      content:
-        `Updated Minecraft username for ${formatUser(user)} to **${result.profile.username}**. ${allowlistMessage}` +
-        removedOldUsername,
-    });
   }
 };
