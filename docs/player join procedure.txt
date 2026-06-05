@@ -1,0 +1,24 @@
+Player experience guideline.
+
+1.  New player joins the server.
+2.  Enclave bot sends the application, and assigns the outsider role.
+
+    Before the application is accepted, this is what channels users will see.
+        *waiting-room
+        *faction-rules
+        *faction-ranks
+        *faction-info
+        *gamer-tag (legacy, will go away with release of this server.)
+        *gates-of-licuria
+        *kingdoms-crier
+        *minecraft-updates
+        *butternut-inn
+
+3.  User completes & submits application.
+4.  Bot sends it to #player-applications for staff review
+5.  Staff accepts the application.
+6.  Enclave DMs user that application has been accepted.
+    Bot also gives player liege role, and removes outsider
+7.  User runs the /setminecraftusername command to get allowlisted on the minecraft server.
+8.  User joins the minecraft server.
+9.  User picks a faction, the bot syncs that up to discord.

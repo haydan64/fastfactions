@@ -1,0 +1,83 @@
+#Community Commands
+
+/setminecraftusername <username:string>
+this command allows anyone to set what their minecraft/xbox username is.
+This command should only be available to those with the Liege discord role.
+This command should not be available to those with the outsider discord role.
+This command should not allow users to select usernames that are already taken.
+If a user uses this command to change their previously set ingame name,
+it should send a message to staff with a accept/deny, and a reason from the user.
+It should also unwhitelist the old username immediately and clear the xuid feild in the database,
+and once approved, the new username should be whitelisted.
+
+
+#Developer Commands
+
+/forcestopbds
+This command allows developers to stop the minecraft server when it becomes unresponsive to the /stop command.
+only those with the developer tag can use this.
+
+/ping
+Basic ping command.
+only those with the developer tag can use /ping
+
+/reloadbds
+reloads the addons on the minecraft bds.
+only those with the developer tag can us this.
+
+
+#Royalty (admin) commands
+-All of these commands require the royalty role.
+
+/bds <command:string>
+allows admin to run commands on the minecraft server.
+
+/changePlayerUsername <user:discord profile> <username:string>
+allows admin to change a user's minecraft username.
+This should unwhitelist the old username, and whitelist the new one.
+This should also clear the xuid feild for the user in the database.
+
+/deop <name or xuid:string>
+allows admins to deop a minecraft profile on the minecraft server.
+
+/kick <name or xuid:string> <reason:string>
+Allows admins to kick a player from the minecraft server.
+
+/op <name or xuid:string>
+allows admins to op a minecraft profile on the minecraft server.
+
+/restartbds
+allows admins to restart the minecraft server.
+
+/savebackup
+allows admins to save a unscheduled backup.
+
+/sayhere <message:string>
+allows admins to send a message as the bot in the current channel.
+
+/saypreset <filename:string>
+allows admins to send a preset message (such as the rules) in the current channel.
+the filename should not include .json
+
+/sendmessage
+allows admins to send a message to the minecraft server.
+
+/stopbds
+This command allows developers to stop the minecraft server for maintenance.
+
+/updateplayer
+
+
+#Staff Commands
+-All of these commands require the white-guard role.
+
+/reset-application <user:discord profile>
+Allows staff to reset someone's application.
+This should remove the liege role (if the user has it), and add the Outsider role.
+This should also remove all responses for the user's application, and reset status.
+
+/unwhitelist <user:discord profile>
+Allows staff to remove players from the minecraft server.
+
+/view-application <user:discord profile>
+Allows staff to view a players application responses and status.
