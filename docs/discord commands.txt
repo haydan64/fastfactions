@@ -77,5 +77,8 @@ This should also remove all responses for the user's application, and reset stat
 /unwhitelist <user:discord profile>
 Allows staff to remove players from the minecraft server.
 
+/whitelist <user:discord profile>
+Allows staff to whitelist players.
+
 /view-application <user:discord profile>
 Allows staff to view a players application responses and status.
