@@ -1,4 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
+const { replyWithRequestResult } = require('../interactionResponses');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -19,8 +20,7 @@ module.exports = {
     const sub = interaction.options.getSubcommand();
     if (sub === 'run') {
       const command = interaction.options.getString('command', true);
-      const result = await eventBus.request(events.SERVER_COMMAND, { action: 'command', command });
-      await interaction.reply({ content: result.message, ephemeral: true });
+      await replyWithRequestResult(interaction, eventBus.request(events.SERVER_COMMAND, { action: 'command', command }));
       return;
     }
 

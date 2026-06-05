@@ -1,4 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
+const { replyWithRequestResult } = require('../interactionResponses');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -8,7 +9,6 @@ module.exports = {
     const allowed = await ensureRole(interaction, [roleIds.ROYALTY], 'Only Royalty can trigger backups.');
     if (!allowed) return;
 
-    const result = await eventBus.request(events.SERVER_COMMAND, { action: 'backup' });
-    await interaction.reply({ content: result.message, ephemeral: true });
+    await replyWithRequestResult(interaction, eventBus.request(events.SERVER_COMMAND, { action: 'backup' }));
   }
 };

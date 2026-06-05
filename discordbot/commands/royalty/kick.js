@@ -1,4 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
+const { replyWithRequestResult } = require('../interactionResponses');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -15,10 +16,9 @@ module.exports = {
     const player = interaction.options.getString('player', true);
     const reason = interaction.options.getString('reason', true);
     const sanitizedReason = reason.replace(/"/g, "'");
-    const result = await eventBus.request(events.SERVER_COMMAND, {
+    await replyWithRequestResult(interaction, eventBus.request(events.SERVER_COMMAND, {
       action: 'command',
       command: `kick "${player}" ${sanitizedReason}`
-    });
-    await interaction.reply({ content: result.message, ephemeral: true });
+    }));
   }
 };

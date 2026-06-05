@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { requestAllowlistUpdate } = require('../minecraftProfileAllowlist');
+const { replyWithRequestResult } = require('../interactionResponses');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -24,10 +25,6 @@ module.exports = {
       return;
     }
 
-    const result = await requestAllowlistUpdate(eventBus, events, profile);
-    await interaction.reply({
-      content: result.message,
-      ephemeral: true
-    });
+    await replyWithRequestResult(interaction, requestAllowlistUpdate(eventBus, events, profile));
   }
 };

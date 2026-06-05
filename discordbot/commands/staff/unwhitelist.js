@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { requestAllowlistRemoval } = require('../minecraftProfileAllowlist');
+const { replyWithRequestResult } = require('../interactionResponses');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -24,7 +25,6 @@ module.exports = {
       return;
     }
 
-    const result = await requestAllowlistRemoval(eventBus, events, profile.username);
-    await interaction.reply({ content: result.message, ephemeral: true });
+    await replyWithRequestResult(interaction, requestAllowlistRemoval(eventBus, events, profile.username));
   }
 };

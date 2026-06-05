@@ -1,4 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
+const { replyWithRequestResult } = require('../interactionResponses');
 
 async function resolveXuid(player, getAllowlistEntryByName, getMinecraftProfileByUsername) {
   const trimmed = player?.trim();
@@ -36,7 +37,9 @@ module.exports = {
       return;
     }
 
-    const result = await eventBus.request(events.SERVER_COMMAND, { action: 'permission:set', xuid, permission: 'member' });
-    await interaction.reply({ content: result.message, ephemeral: true });
+    await replyWithRequestResult(
+      interaction,
+      eventBus.request(events.SERVER_COMMAND, { action: 'permission:set', xuid, permission: 'member' })
+    );
   }
 };

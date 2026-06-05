@@ -31,6 +31,8 @@ const ALLOWLIST_PATH = path.join(SERVER_ROOT, 'allowlist.json');
 const PERMISSIONS_PATH = path.join(SERVER_ROOT, 'permissions.json');
 const SERVER_PROPERTIES_PATH = path.join(SERVER_ROOT, 'server.properties');
 const SERVER_CONFIG_PATH = path.join(SERVER_ROOT, 'config');
+const STOP_TIMEOUT_MS = 10000;
+const FORCE_STOP_TIMEOUT_MS = 10000;
 
 function writeJson(filePath, data) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -70,6 +72,12 @@ function readPackEntry(manifestPath) {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function timeoutResult(ms, message) {
+  return new Promise((resolve) => {
+    setTimeout(() => resolve({ ok: false, message }), ms);
+  });
 }
 
 function ensureParentDirectory(filePath) {
@@ -529,9 +537,12 @@ class BedrockServerController {
         message: 'Graceful stop timed out; force killing Bedrock server'
       });
       currentProcess.kill('SIGKILL');
-    }, 10000);
+    }, STOP_TIMEOUT_MS);
 
-    return awaitExit;
+    return Promise.race([
+      awaitExit,
+      timeoutResult(STOP_TIMEOUT_MS + 5000, 'Timed out waiting for Bedrock server to stop.')
+    ]);
   }
 
   forceStop() {
@@ -548,7 +559,10 @@ class BedrockServerController {
     eventBus.emit(SERVER_STATE, { state: 'stopping', message: 'Force stopping Bedrock server', important: true });
     currentProcess.kill('SIGKILL');
 
-    return awaitExit;
+    return Promise.race([
+      awaitExit,
+      timeoutResult(FORCE_STOP_TIMEOUT_MS, 'Timed out waiting for Bedrock server to force stop.')
+    ]);
   }
 
   async restart() {
@@ -592,6 +606,19 @@ class BedrockServerController {
     eventBus.emit(SERVER_BACKUP, { path: destination, message, important: true });
     eventBus.emit(SERVER_LOG, { level: 'info', message });
     return { ok: true, message, data: { path: destination } };
+  }
+
+  requestBackup() {
+    setImmediate(() => {
+      this.backup().catch((err) => {
+        eventBus.emit(SERVER_LOG, {
+          level: 'error',
+          message: `Backup failed: ${err.message}`,
+          important: true
+        });
+      });
+    });
+    return { ok: true, message: 'Backup started. I will post the backup completion log when it finishes.' };
   }
 
   async update(details = 'Manual update triggered') {
@@ -839,7 +866,7 @@ class BedrockServerController {
       case 'start':
         return this.start();
       case 'backup':
-        return this.backup();
+        return this.requestBackup();
       case 'update':
         return this.update(payload.details);
       case 'command':

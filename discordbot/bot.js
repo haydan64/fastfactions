@@ -1,6 +1,7 @@
 const path = require('path');
 const { Client, GatewayIntentBits, Partials, EmbedBuilder } = require('discord.js');
 const eventBus = require('../eventBus');
+const { safeReply } = require('./commands/interactionResponses');
 const {
   upsertMinecraftProfile,
   getMinecraftProfileByDiscordId,
@@ -256,9 +257,7 @@ function registerCommandHandlers(client, commands) {
       await command.execute(interaction, commandContext);
     } catch (err) {
       console.error(`Error executing command ${interaction.commandName}:`, err);
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({ content: 'There was an error executing this command.', ephemeral: true });
-      }
+      await safeReply(interaction, { content: 'There was an error executing this command.', ephemeral: true });
     }
   });
 }

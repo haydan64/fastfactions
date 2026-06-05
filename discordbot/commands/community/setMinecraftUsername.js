@@ -3,6 +3,7 @@ const {
   isDuplicateMinecraftUsernameError,
   saveProfileAndQueueAllowlist
 } = require('../minecraftProfileAllowlist');
+const { safeReply } = require('../interactionResponses');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -16,6 +17,8 @@ module.exports = {
       return;
     }
 
+    await interaction.deferReply({ ephemeral: true });
+
     let result;
     try {
       result = await saveProfileAndQueueAllowlist({
@@ -28,9 +31,8 @@ module.exports = {
       });
     } catch (err) {
       if (isDuplicateMinecraftUsernameError(err)) {
-        await interaction.reply({
+        await safeReply(interaction, {
           content: `**${username}** is already linked to another Discord user. Please enter your own Minecraft username.`,
-          ephemeral: true
         });
         return;
       }
@@ -43,9 +45,8 @@ module.exports = {
       : '';
     const allowlistMessage = result.allowlistResult?.message || 'Allowlist update completed.';
 
-    await interaction.reply({
+    await safeReply(interaction, {
       content: `Saved your Minecraft username as **${result.profile.username}**. ${allowlistMessage}${removedOldUsername} We'll capture your XUID when you join the server.`,
-      ephemeral: true
     });
   }
 };

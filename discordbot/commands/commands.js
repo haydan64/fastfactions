@@ -1,4 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
+const { replyWithRequestResult } = require('./interactionResponses');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -90,13 +91,12 @@ module.exports = {
       const name = interaction.options.getString('name', true);
       const xuid = interaction.options.getString('xuid');
       const ignoresLimit = interaction.options.getBoolean('ignores_player_limit') || false;
-      const result = await eventBus.request(events.SERVER_COMMAND, {
+      await replyWithRequestResult(interaction, eventBus.request(events.SERVER_COMMAND, {
         action: 'allowlist:add',
         name,
         xuid,
         ignoresPlayerLimit: ignoresLimit
-      });
-      await interaction.reply({ content: result.message, ephemeral: true });
+      }));
       return;
     }
 
@@ -108,8 +108,10 @@ module.exports = {
       );
       if (!allowed) return;
       const name = interaction.options.getString('name', true);
-      const result = await eventBus.request(events.SERVER_COMMAND, { action: 'allowlist:remove', name });
-      await interaction.reply({ content: result.message, ephemeral: true });
+      await replyWithRequestResult(
+        interaction,
+        eventBus.request(events.SERVER_COMMAND, { action: 'allowlist:remove', name })
+      );
       return;
     }
 
@@ -122,11 +124,10 @@ module.exports = {
       if (!allowed) return;
       const xuid = interaction.options.getString('xuid', true);
       const permission = interaction.options.getString('permission', true);
-      const result = await eventBus.request(events.SERVER_COMMAND, { action: 'permission:set', xuid, permission });
-      await interaction.reply({
-        content: result.message,
-        ephemeral: true
-      });
+      await replyWithRequestResult(
+        interaction,
+        eventBus.request(events.SERVER_COMMAND, { action: 'permission:set', xuid, permission })
+      );
       return;
     }
 
