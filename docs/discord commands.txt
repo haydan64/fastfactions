@@ -65,8 +65,6 @@ allows admins to send a message to the minecraft server.
 /stopbds
 This command allows admin to stop the minecraft server for maintenance.
 
-/updateplayer
-
 
 #Staff Commands
 -All of these commands require the white-guard role.
