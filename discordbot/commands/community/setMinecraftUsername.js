@@ -10,7 +10,24 @@ module.exports = {
     .setName('setminecraftusername')
     .setDescription('Set your Minecraft username')
     .addStringOption((opt) => opt.setName('username').setDescription('Your Minecraft username').setRequired(true)),
-  async execute(interaction, { upsertMinecraftProfile, getMinecraftProfileByDiscordId, eventBus, events }) {
+  async execute(interaction, { upsertMinecraftProfile, getMinecraftProfileByDiscordId, eventBus, events, applicationRoles }) {
+    const memberRoles = interaction.member?.roles?.cache;
+    if (applicationRoles?.outsider && memberRoles?.has(applicationRoles.outsider)) {
+      await interaction.reply({
+        content: 'You must have an accepted application before setting your Minecraft username.',
+        ephemeral: true
+      });
+      return;
+    }
+
+    if (applicationRoles?.liege && !memberRoles?.has(applicationRoles.liege)) {
+      await interaction.reply({
+        content: 'Only players with the Liege role can use this command.',
+        ephemeral: true
+      });
+      return;
+    }
+
     const username = interaction.options.getString('username', true).trim();
     if (!username) {
       await interaction.reply({ content: 'Please provide a valid username.', ephemeral: true });
