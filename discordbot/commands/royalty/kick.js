@@ -15,10 +15,10 @@ module.exports = {
     const player = interaction.options.getString('player', true);
     const reason = interaction.options.getString('reason', true);
     const sanitizedReason = reason.replace(/"/g, "'");
-    eventBus.emit(events.SERVER_COMMAND, {
+    const result = await eventBus.request(events.SERVER_COMMAND, {
       action: 'command',
       command: `kick "${player}" ${sanitizedReason}`
     });
-    await interaction.reply({ content: `Kick issued for **${player}**.`, ephemeral: true });
+    await interaction.reply({ content: result.message, ephemeral: true });
   }
 };

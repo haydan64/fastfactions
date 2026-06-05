@@ -90,13 +90,13 @@ module.exports = {
       const name = interaction.options.getString('name', true);
       const xuid = interaction.options.getString('xuid');
       const ignoresLimit = interaction.options.getBoolean('ignores_player_limit') || false;
-      eventBus.emit(events.SERVER_COMMAND, {
+      const result = await eventBus.request(events.SERVER_COMMAND, {
         action: 'allowlist:add',
         name,
         xuid,
         ignoresPlayerLimit: ignoresLimit
       });
-      await interaction.reply({ content: `Queued allowlist update for **${name}**.`, ephemeral: true });
+      await interaction.reply({ content: result.message, ephemeral: true });
       return;
     }
 
@@ -108,8 +108,8 @@ module.exports = {
       );
       if (!allowed) return;
       const name = interaction.options.getString('name', true);
-      eventBus.emit(events.SERVER_COMMAND, { action: 'allowlist:remove', name });
-      await interaction.reply({ content: `Queued allowlist removal for **${name}**.`, ephemeral: true });
+      const result = await eventBus.request(events.SERVER_COMMAND, { action: 'allowlist:remove', name });
+      await interaction.reply({ content: result.message, ephemeral: true });
       return;
     }
 
@@ -122,9 +122,9 @@ module.exports = {
       if (!allowed) return;
       const xuid = interaction.options.getString('xuid', true);
       const permission = interaction.options.getString('permission', true);
-      eventBus.emit(events.SERVER_COMMAND, { action: 'permission:set', xuid, permission });
+      const result = await eventBus.request(events.SERVER_COMMAND, { action: 'permission:set', xuid, permission });
       await interaction.reply({
-        content: `Queued permission update for **${xuid}** → **${permission}**.`,
+        content: result.message,
         ephemeral: true
       });
       return;

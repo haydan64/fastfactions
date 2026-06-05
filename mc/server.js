@@ -109,15 +109,13 @@ class BedrockServerController {
     this.hasCrashed = false;
     this.stopping = false;
     this.lastLogLevel = 'info';
-    eventBus.on(SERVER_COMMAND, (payload) =>
-      this.handleExternalCommand(payload).catch((err) =>
-        eventBus.emit(SERVER_LOG, { level: 'error', message: `Server command failed: ${err.message}` })
-      )
-    );
+    eventBus.handle(SERVER_COMMAND, async (payload) => this.handleExternalCommand(payload));
     eventBus.on(MINECRAFT_EVENT, ({ event, content }) => {
       switch (event) {
         case ("unwhitelist"): {
-          this.removeAllowlist(content.target);
+          this.removeAllowlist(content.target).catch((err) =>
+            eventBus.emit(SERVER_LOG, { level: 'error', message: `Server command failed: ${err.message}` })
+          );
           break;
         }
         case ("reload"): {
@@ -308,7 +306,7 @@ class BedrockServerController {
   }
 
   async updateAllowlist({ name, xuid, ignoresPlayerLimit = false }) {
-    if (!name) return;
+    if (!name) return { ok: false, message: 'Cannot update allowlist without a player name.' };
     const existing = this.loadJson(ALLOWLIST_PATH, []);
     const withoutName = existing.filter((entry) => entry.name?.toLowerCase() !== name.toLowerCase());
     const updated = [
@@ -317,22 +315,34 @@ class BedrockServerController {
     ];
     this.saveJson(ALLOWLIST_PATH, updated);
     await dbUpsertAllowlistEntry({ name, xuid, ignoresPlayerLimit });
+    let reloadSent = false;
     if (this.process) {
-      this.sendCommand('allowlist reload');
+      reloadSent = this.sendCommand('allowlist reload').ok;
     }
     eventBus.emit(SERVER_LOG, { level: 'info', message: `Allowlist updated for ${name}`, important: true });
+    return {
+      ok: true,
+      message: `Allowlist updated for ${name}${reloadSent ? ' and reload command sent.' : '.'}`,
+      data: { name, xuid: xuid || null, ignoresPlayerLimit: Boolean(ignoresPlayerLimit), reloadSent }
+    };
   }
 
   async removeAllowlist(name) {
-    if (!name) return;
+    if (!name) return { ok: false, message: 'Cannot remove allowlist entry without a player name.' };
     const existing = this.loadJson(ALLOWLIST_PATH, []);
     const filtered = existing.filter((entry) => entry.name?.toLowerCase() !== name.toLowerCase());
     this.saveJson(ALLOWLIST_PATH, filtered);
     await dbRemoveAllowlistEntry(name);
+    let reloadSent = false;
     if (this.process) {
-      this.sendCommand('allowlist reload');
+      reloadSent = this.sendCommand('allowlist reload').ok;
     }
     eventBus.emit(SERVER_LOG, { level: 'info', message: `Allowlist entry removed for ${name}`, important: true });
+    return {
+      ok: true,
+      message: `Allowlist entry removed for ${name}${reloadSent ? ' and reload command sent.' : '.'}`,
+      data: { name, reloadSent }
+    };
   }
 
   async setPermission({ xuid, permission }) {
@@ -342,21 +352,27 @@ class BedrockServerController {
         level: 'warn',
         message: `Invalid permission payload (xuid=${xuid}, permission=${permission})`
       });
-      return;
+      return { ok: false, message: `Invalid permission payload (xuid=${xuid}, permission=${permission}).` };
     }
     const existing = this.loadJson(PERMISSIONS_PATH, []);
     const without = existing.filter((entry) => entry.xuid !== xuid);
     const updated = [...without, { xuid, permission }];
     this.saveJson(PERMISSIONS_PATH, updated);
     await dbUpsertPermission({ xuid, permission });
+    let reloadSent = false;
     if (this.process) {
-      this.sendCommand('permission reload');
+      reloadSent = this.sendCommand('permission reload').ok;
     }
     eventBus.emit(SERVER_LOG, {
       level: 'info',
       message: `Permissions updated for XUID ${xuid} -> ${permission}`,
       important: true
     });
+    return {
+      ok: true,
+      message: `Permissions updated for XUID ${xuid} -> ${permission}${reloadSent ? ' and reload command sent.' : '.'}`,
+      data: { xuid, permission, reloadSent }
+    };
   }
 
   async syncServerConfigFromDatabase() {
@@ -399,18 +415,18 @@ class BedrockServerController {
         message: 'Unable to start BDS because configuration sync failed.',
         important: true
       });
-      return;
+      return { ok: false, message: 'Unable to start BDS because configuration sync failed.' };
     }
 
     if (!fs.existsSync(binaryPath)) {
       const message = `Bedrock server binary missing at ${binaryPath}`;
       eventBus.emit(SERVER_STATE, { state: 'missing', message, important: true });
-      return;
+      return { ok: false, message };
     }
 
     if (this.process) {
       eventBus.emit(SERVER_STATE, { state: 'running', message: 'Server already running' });
-      return;
+      return { ok: true, message: 'Bedrock server is already running.', data: { alreadyRunning: true } };
     }
 
     eventBus.emit(SERVER_STATE, { state: 'starting', message: 'Starting Bedrock server', important: true });
@@ -481,12 +497,13 @@ class BedrockServerController {
       this.stopping = false;
     });
 
+    return { ok: true, message: 'Bedrock server start requested.' };
   }
 
   stop() {
     if (!this.process) {
       eventBus.emit(SERVER_STATE, { state: 'stopped', message: 'Server not running' });
-      return Promise.resolve();
+      return Promise.resolve({ ok: true, message: 'Bedrock server is already stopped.', data: { alreadyStopped: true } });
     }
 
     this.stopping = true;
@@ -496,14 +513,15 @@ class BedrockServerController {
     const awaitExit = new Promise((resolve) => {
       currentProcess.once('exit', () => {
         clearTimeout(stopTimeout);
-        resolve();
+        resolve({ ok: true, message: 'Bedrock server stopped.' });
       });
     });
 
     eventBus.emit(SERVER_STATE, { state: 'stopping', message: 'Stopping Bedrock server', important: true });
 
     // Ask the server to stop gracefully first to ensure worlds are saved.
-    this.sendCommand('stop');
+    const sent = this.sendCommand('stop');
+    if (!sent.ok) return Promise.resolve(sent);
 
     stopTimeout = setTimeout(() => {
       eventBus.emit(SERVER_LOG, {
@@ -519,12 +537,12 @@ class BedrockServerController {
   forceStop() {
     if (!this.process) {
       eventBus.emit(SERVER_STATE, { state: 'stopped', message: 'Server not running' });
-      return Promise.resolve();
+      return Promise.resolve({ ok: true, message: 'Bedrock server is already stopped.', data: { alreadyStopped: true } });
     }
 
     const currentProcess = this.process;
     const awaitExit = new Promise((resolve) => {
-      currentProcess.once('exit', () => resolve());
+      currentProcess.once('exit', () => resolve({ ok: true, message: 'Bedrock server force stopped.' }));
     });
 
     eventBus.emit(SERVER_STATE, { state: 'stopping', message: 'Force stopping Bedrock server', important: true });
@@ -534,8 +552,14 @@ class BedrockServerController {
   }
 
   async restart() {
-    await this.stop();
-    return this.start();
+    const stopResult = await this.stop();
+    if (!stopResult?.ok) return stopResult;
+    const startResult = await this.start();
+    return {
+      ok: Boolean(startResult?.ok),
+      message: startResult?.ok ? 'Bedrock server restarted.' : startResult?.message || 'Bedrock server restart failed.',
+      data: { stop: stopResult, start: startResult }
+    };
   }
 
   async backup() {
@@ -567,29 +591,34 @@ class BedrockServerController {
     const message = `World backup created at ${destination}`;
     eventBus.emit(SERVER_BACKUP, { path: destination, message, important: true });
     eventBus.emit(SERVER_LOG, { level: 'info', message });
+    return { ok: true, message, data: { path: destination } };
   }
 
   async update(details = 'Manual update triggered') {
     eventBus.emit(SERVER_LOG, { level: 'info', message: `Update requested: ${details}` });
+    return { ok: true, message: `Update requested: ${details}` };
   }
 
   sendCommand(command) {
     const p = this.process;
     if (!p) {
-      eventBus.emit(SERVER_LOG, { level: 'warn', message: `Cannot send command, server offline: ${command}` });
-      return false;
+      const message = `Cannot send command, server offline: ${command}`;
+      eventBus.emit(SERVER_LOG, { level: 'warn', message });
+      return { ok: false, message };
     }
 
     const stdin = p.stdin;
     if (!stdin || stdin.destroyed || stdin.writableEnded) {
-      eventBus.emit(SERVER_LOG, { level: 'warn', message: `Cannot send command, stdin closed: ${command}` });
-      return false;
+      const message = `Cannot send command, stdin closed: ${command}`;
+      eventBus.emit(SERVER_LOG, { level: 'warn', message });
+      return { ok: false, message };
     }
 
     // If the process has already exited (or is exiting), don't write.
     if (p.killed || p.exitCode !== null) {
-      eventBus.emit(SERVER_LOG, { level: 'warn', message: `Cannot send command, process exiting/exited: ${command}` });
-      return false;
+      const message = `Cannot send command, process exiting/exited: ${command}`;
+      eventBus.emit(SERVER_LOG, { level: 'warn', message });
+      return { ok: false, message };
     }
 
     try {
@@ -604,12 +633,12 @@ class BedrockServerController {
       });
 
       eventBus.emit(SERVER_LOG, { level: 'info', message: `Sent command: ${command}` });
-      return true;
+      return { ok: true, message: `Sent command to Bedrock server: ${command}`, data: { command } };
     } catch (err) {
       if (err?.code !== 'EPIPE') {
         eventBus.emit(SERVER_LOG, { level: 'warn', message: `Failed to send command "${command}": ${err.message}` });
       }
-      return false;
+      return { ok: false, message: `Failed to send command "${command}": ${err.message}` };
     }
   }
 
@@ -802,8 +831,7 @@ class BedrockServerController {
       case 'reload':
         //using this reload action will copy over the mclink pack, then run the reload command.
         this.ensureLinkAddon();
-        this.sendCommand('reload');
-        return
+        return this.sendCommand('reload');
       case 'stop':
         return this.stop();
       case 'forceStop':
@@ -827,6 +855,7 @@ class BedrockServerController {
         return this.setPermission(payload);
       default:
         eventBus.emit(SERVER_LOG, { level: 'warn', message: `Unknown server command: ${action}` });
+        return { ok: false, message: `Unknown server command: ${action}` };
     }
   }
 }

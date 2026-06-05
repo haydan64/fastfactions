@@ -218,7 +218,10 @@ module.exports = function registerChatLinkModule({ client }) {
       else if (member?.roles?.cache?.has("789173632420544552")) nameColor = "§2"; // Mercenary
 
       const command = buildTellrawMessage(minecraftName, nameColor, content);
-      eventBus.emit(SERVER_COMMAND, { action: 'internal', command });
+      const result = await eventBus.request(SERVER_COMMAND, { action: 'internal', command });
+      if (!result?.ok) {
+        console.warn(`Failed to relay Discord message to Minecraft: ${result?.message || 'unknown error'}`);
+      }
     } catch (err) {
       console.error('Failed to relay Discord message to Minecraft:', err.message);
     }

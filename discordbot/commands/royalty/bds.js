@@ -19,8 +19,8 @@ module.exports = {
     const sub = interaction.options.getSubcommand();
     if (sub === 'run') {
       const command = interaction.options.getString('command', true);
-      eventBus.emit(events.SERVER_COMMAND, { action: 'command', command });
-      await interaction.reply({ content: `Sent command to Bedrock server: **${command}**`, ephemeral: true });
+      const result = await eventBus.request(events.SERVER_COMMAND, { action: 'command', command });
+      await interaction.reply({ content: result.message, ephemeral: true });
       return;
     }
 

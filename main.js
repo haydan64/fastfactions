@@ -31,26 +31,31 @@ async function bootstrap() {
   await start();
   await server.start();
 
-  function gracefullShutdown(reason, err) {
+  async function gracefulShutdown(reason, err) {
+    if (err) {
+      console.error(reason, err);
+    }
     if (server.process) {
       eventBus.on(eventBus.EVENTS.SERVER_STATE, ({ state, message }) => {
         if (state === "stopped" && message === "Bedrock server stopped") {
           process.exit(0);
         }
       });
-      eventBus.emit(eventBus.EVENTS.SERVER_COMMAND, { action: 'stop' });
       console.log("Waiting for server to shut down correctly...")
       setTimeout(() => {
         console.log("Shutdown Timeout: Forcing Shutdown...")
         process.exit(0);
       }, 15000);
+      await eventBus.request(eventBus.EVENTS.SERVER_COMMAND, { action: 'stop' }).catch((requestErr) => {
+        console.error(`Shutdown stop request failed: ${requestErr.message}`);
+      });
     } else {
       process.exit(0);
     }
   }
 
-  process.on('SIGINT', gracefullShutdown);
-  process.on('SIGTERM', gracefullShutdown);
+  process.on('SIGINT', gracefulShutdown);
+  process.on('SIGTERM', gracefulShutdown);
   process.on("uncaughtException", (err) => gracefulShutdown("uncaughtException", err));
   process.on("unhandledRejection", (reason) =>
     gracefulShutdown("unhandledRejection", reason instanceof Error ? reason : new Error(String(reason)))

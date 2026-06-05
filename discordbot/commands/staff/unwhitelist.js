@@ -1,4 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
+const { requestAllowlistRemoval } = require('../minecraftProfileAllowlist');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -23,7 +24,7 @@ module.exports = {
       return;
     }
 
-    eventBus.emit(events.SERVER_COMMAND, { action: 'allowlist:remove', name: profile.username });
-    await interaction.reply({ content: `Queued whitelist removal for **${profile.username}**.`, ephemeral: true });
+    const result = await requestAllowlistRemoval(eventBus, events, profile.username);
+    await interaction.reply({ content: result.message, ephemeral: true });
   }
 };

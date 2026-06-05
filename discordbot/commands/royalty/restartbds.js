@@ -8,7 +8,7 @@ module.exports = {
     const allowed = await ensureRole(interaction, [roleIds.ROYALTY], 'Only Royalty can restart the server.');
     if (!allowed) return;
 
-    eventBus.emit(events.SERVER_COMMAND, { action: 'restart' });
-    await interaction.reply({ content: 'Bedrock server restart requested.', ephemeral: true });
+    const result = await eventBus.request(events.SERVER_COMMAND, { action: 'restart' });
+    await interaction.reply({ content: result.message, ephemeral: true });
   }
 };

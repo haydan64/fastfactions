@@ -191,17 +191,24 @@ async function upsertPermission({ xuid, permission }) {
   );
 }
 
-async function upsertMinecraftProfile(discordId, username) {
+async function upsertMinecraftProfile(discordId, username, options = {}) {
   if (!discordId || !username) return null;
+  const clearXuidOnUsernameChange = Boolean(options.clearXuidOnUsernameChange);
   return pool.query(
     `
     INSERT INTO players (discord_id, username, updated_at)
     VALUES ($1, $2, NOW())
     ON CONFLICT (discord_id)
-    DO UPDATE SET username = EXCLUDED.username, updated_at = NOW()
+    DO UPDATE SET
+      username = EXCLUDED.username,
+      xuid = CASE
+        WHEN $3 AND LOWER(players.username) <> LOWER(EXCLUDED.username) THEN NULL
+        ELSE players.xuid
+      END,
+      updated_at = NOW()
     RETURNING *;
   `,
-    [discordId, username]
+    [discordId, username, clearXuidOnUsernameChange]
   );
 }
 

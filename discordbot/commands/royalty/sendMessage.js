@@ -12,7 +12,7 @@ module.exports = {
     if (!allowed) return;
 
     const message = interaction.options.getString('message', true);
-    eventBus.emit(events.SERVER_COMMAND, { action: 'command', command: `say ${message}` });
-    await interaction.reply({ content: 'Message broadcast to the Minecraft server.', ephemeral: true });
+    const result = await eventBus.request(events.SERVER_COMMAND, { action: 'command', command: `say ${message}` });
+    await interaction.reply({ content: result.message, ephemeral: true });
   }
 };

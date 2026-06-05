@@ -1,4 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
+const { requestAllowlistUpdate } = require('../minecraftProfileAllowlist');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -23,13 +24,9 @@ module.exports = {
       return;
     }
 
-    eventBus.emit(events.SERVER_COMMAND, {
-      action: 'allowlist:add',
-      name: profile.username,
-      xuid: profile.xuid
-    });
+    const result = await requestAllowlistUpdate(eventBus, events, profile);
     await interaction.reply({
-      content: `Queued whitelist update for **${profile.username}**${profile.xuid ? ` (XUID: ${profile.xuid})` : ''}.`,
+      content: result.message,
       ephemeral: true
     });
   }

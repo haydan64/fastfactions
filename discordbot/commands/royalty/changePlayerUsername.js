@@ -1,4 +1,8 @@
 const { SlashCommandBuilder } = require('discord.js');
+const {
+  isDuplicateMinecraftUsernameError,
+  saveProfileAndQueueAllowlist
+} = require('../minecraftProfileAllowlist');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -6,7 +10,10 @@ module.exports = {
     .setDescription("Change a player's Minecraft username (Royalty only)")
     .addUserOption((opt) => opt.setName('user').setDescription('Discord user').setRequired(true))
     .addStringOption((opt) => opt.setName('username').setDescription('New Minecraft username').setRequired(true)),
-  async execute(interaction, { ensureRole, roleIds, upsertMinecraftProfile, formatUser }) {
+  async execute(
+    interaction,
+    { ensureRole, roleIds, upsertMinecraftProfile, getMinecraftProfileByDiscordId, eventBus, events, formatUser }
+  ) {
     const allowed = await ensureRole(interaction, [roleIds.ROYALTY], 'Only Royalty can change player usernames.');
     if (!allowed) return;
 
@@ -17,11 +24,37 @@ module.exports = {
       return;
     }
 
-    await upsertMinecraftProfile(user.id, username);
+    let result;
+    try {
+      result = await saveProfileAndQueueAllowlist({
+        discordId: user.id,
+        username,
+        getMinecraftProfileByDiscordId,
+        upsertMinecraftProfile,
+        eventBus,
+        events
+      });
+    } catch (err) {
+      if (isDuplicateMinecraftUsernameError(err)) {
+        await interaction.reply({
+          content: `**${username}** is already linked to another Discord user.`,
+          ephemeral: true
+        });
+        return;
+      }
+
+      throw err;
+    }
+
+    const removedOldUsername = result.removedOldUsername
+      ? ` ${result.removalResult?.message || `Removed old allowlist entry for ${result.removedOldUsername}.`} Cleared the saved XUID.`
+      : '';
+    const allowlistMessage = result.allowlistResult?.message || 'Allowlist update completed.';
+
     await interaction.reply({
       content:
-        `Updated Minecraft username for ${formatUser(user)} to **${username}**.\n` +
-        'If the player is using a different Microsoft account, run `/unbindXUID [user]` and re-add them to the whitelist.',
+        `Updated Minecraft username for ${formatUser(user)} to **${result.profile.username}**. ${allowlistMessage}` +
+        removedOldUsername,
       ephemeral: true
     });
   }

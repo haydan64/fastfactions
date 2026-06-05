@@ -36,7 +36,7 @@ module.exports = {
       return;
     }
 
-    eventBus.emit(events.SERVER_COMMAND, { action: 'permission:set', xuid, permission: 'member' });
-    await interaction.reply({ content: `Operator status removed for XUID **${xuid}**.`, ephemeral: true });
+    const result = await eventBus.request(events.SERVER_COMMAND, { action: 'permission:set', xuid, permission: 'member' });
+    await interaction.reply({ content: result.message, ephemeral: true });
   }
 };
