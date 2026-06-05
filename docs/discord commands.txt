@@ -80,5 +80,5 @@ Allows staff to remove players from the minecraft server.
 /whitelist <user:discord profile>
 Allows staff to whitelist players.
 
-/view-application <user:discord profile>
+/view-application [user:discord profile]
 Allows staff to view a players application responses and status.

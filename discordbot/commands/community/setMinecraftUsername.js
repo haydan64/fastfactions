@@ -53,6 +53,14 @@ module.exports = {
     }
 
     const existingProfile = await getMinecraftProfileByDiscordId(interaction.user.id);
+    if (sameUsername(existingProfile?.username, username)) {
+      await interaction.reply({
+        content: `Your Minecraft username is already set to **${existingProfile.username}**.`,
+        ephemeral: true
+      });
+      return;
+    }
+
     const isUsernameChange = existingProfile?.username && !sameUsername(existingProfile.username, username);
 
     await interaction.deferReply({ ephemeral: true });
