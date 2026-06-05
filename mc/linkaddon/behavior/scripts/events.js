@@ -1,6 +1,15 @@
 import { world, system } from "@minecraft/server";
 import { sendEvent, unwhitelist } from "./link";
 
+function safeGet(read, fallback = null) {
+    try {
+        const value = read();
+        return value === undefined ? fallback : value;
+    } catch {
+        return fallback;
+    }
+}
+
 world.beforeEvents.chatSend.subscribe((eventData) => {
     const message = eventData.message;
 
@@ -27,11 +36,11 @@ world.beforeEvents.chatSend.subscribe((eventData) => {
 
 world.afterEvents.effectAdd.subscribe((eventData) => {
     sendEvent("effectAdded", {
-        effectName: eventData.effect.typeId,
-        entity: eventData.entity.id,
-        entityName: eventData.entity?.name || eventData.entity?.nameTag || null,
-        amplifier: eventData.effect.amplifier,
-        duration: eventData.effect.duration
+        effectName: safeGet(() => eventData.effect.typeId),
+        entity: safeGet(() => eventData.entity.id),
+        entityName: safeGet(() => eventData.entity.name) || safeGet(() => eventData.entity.nameTag),
+        amplifier: safeGet(() => eventData.effect.amplifier),
+        duration: safeGet(() => eventData.effect.duration)
     });
 });
 
@@ -108,6 +117,7 @@ world.afterEvents.weatherChange.subscribe((eventData) => {
         previousWeather: eventData.previousWeather
     });
 });
+
 
 
 world.afterEvents.worldLoad.subscribe(() => {

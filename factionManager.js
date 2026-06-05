@@ -1,25 +1,35 @@
-const { getMinecraftProfileByUsername } = require('./database/database');
+const {
+  getMinecraftProfileByDiscordId,
+  getMinecraftProfileByUsername
+} = require('./database/database');
 
 const FACTION_ROLES = {
   mercs: {
     name: 'Mercenary',
-    roleId: '789173632420544552'
+    roleId: '789173632420544552',
+    tag: 'merc'
   },
   kams: {
     name: 'Kamereon Kazoku',
-    roleId: '1072300824522403930'
+    roleId: '1072300824522403930',
+    tag: 'kam'
   },
   legion: {
     name: 'Legion of the Sea',
-    roleId: '948367202514501702'
+    roleId: '948367202514501702',
+    tag: 'leg'
   },
   warriors: {
     name: 'Warrior',
-    roleId: '788944083971473468'
+    roleId: '788944083971473468',
+    tag: 'war'
   }
 };
 
 const FACTION_ROLE_IDS = Object.values(FACTION_ROLES).map((faction) => faction.roleId);
+const FACTION_TAGS = Object.values(FACTION_ROLES).map((faction) => faction.tag);
+const FACTION_CACHE_TTL_MS = 60000;
+const factionStateCache = new Map();
 
 async function getGuild(client) {
   if (!client?.guilds) return null;
@@ -40,6 +50,30 @@ function formatResult(ok, message, data = {}) {
   return { ok, message, data };
 }
 
+function getFactionTagsFromMember(member) {
+  return Object.values(FACTION_ROLES)
+    .filter((faction) => member.roles.cache.has(faction.roleId))
+    .map((faction) => faction.tag);
+}
+
+function getFactionTagFromMember(member) {
+  return getFactionTagsFromMember(member)[0] || null;
+}
+
+function clearFactionStateCacheForDiscordId(discordId) {
+  if (!discordId) return;
+  for (const [key, entry] of factionStateCache.entries()) {
+    if (entry.discordId === discordId) {
+      factionStateCache.delete(key);
+    }
+  }
+}
+
+function clearFactionStateCacheForMinecraftUsername(minecraftUsername) {
+  if (!minecraftUsername) return;
+  factionStateCache.delete(String(minecraftUsername).trim().toLowerCase());
+}
+
 async function resolveMemberByMinecraftUsername(client, minecraftUsername) {
   const username = String(minecraftUsername || '').trim();
   if (!username) {
@@ -56,12 +90,37 @@ async function resolveMemberByMinecraftUsername(client, minecraftUsername) {
     return formatResult(false, 'Discord guild was not available for faction role sync.');
   }
 
-  const member = await guild.members.fetch(profile.discord_id).catch(() => null);
+  const member = guild.members.cache.get(profile.discord_id)
+    || await guild.members.fetch(profile.discord_id).catch(() => null);
   if (!member) {
     return formatResult(false, `Discord member ${profile.discord_id} could not be found for "${username}".`);
   }
 
   return formatResult(true, 'Resolved Discord member.', { username, profile, guild, member });
+}
+
+async function resolveMemberByDiscordId(client, discordId) {
+  if (!discordId) {
+    return formatResult(false, 'Discord user ID was missing.');
+  }
+
+  const profile = await getMinecraftProfileByDiscordId(discordId);
+  if (!profile?.username) {
+    return formatResult(false, `No Minecraft profile is linked to Discord user ${discordId}.`);
+  }
+
+  const guild = await getGuild(client);
+  if (!guild) {
+    return formatResult(false, 'Discord guild was not available for faction role sync.');
+  }
+
+  const member = guild.members.cache.get(discordId)
+    || await guild.members.fetch(discordId).catch(() => null);
+  if (!member) {
+    return formatResult(false, `Discord member ${discordId} could not be found.`);
+  }
+
+  return formatResult(true, 'Resolved Discord member.', { username: profile.username, profile, guild, member });
 }
 
 async function setFactionRole(client, minecraftUsername, factionKey) {
@@ -91,6 +150,9 @@ async function setFactionRole(client, minecraftUsername, factionKey) {
     });
   }
 
+  clearFactionStateCacheForMinecraftUsername(username);
+  clearFactionStateCacheForDiscordId(resolved.data.profile.discord_id);
+
   return formatResult(true, `${username} synced to ${faction.name}.`, {
     faction,
     username,
@@ -118,6 +180,8 @@ async function setMemberFactionRole(member, factionKey, reason = 'Faction role c
     return formatResult(false, `Failed to set faction to ${faction.name}: ${err.message}`, { faction });
   }
 
+  clearFactionStateCacheForDiscordId(member.id);
+
   return formatResult(true, `Faction set to ${faction.name}.`, { faction });
 }
 
@@ -132,7 +196,53 @@ async function clearMemberFactionRoles(member, reason = 'Faction roles cleared b
     return formatResult(false, `Failed to clear faction roles: ${err.message}`);
   }
 
+  clearFactionStateCacheForDiscordId(member.id);
+
   return formatResult(true, 'Faction roles cleared.');
+}
+
+async function getDiscordFactionStateForMinecraftUsername(client, minecraftUsername, options = {}) {
+  const username = String(minecraftUsername || '').trim();
+  if (!username) {
+    return formatResult(false, 'Minecraft username was missing.');
+  }
+
+  const cacheKey = username.toLowerCase();
+  const cached = factionStateCache.get(cacheKey);
+  if (!options.forceRefresh && cached && cached.expiresAt > Date.now()) {
+    return formatResult(true, 'Resolved faction state from cache.', cached);
+  }
+
+  const resolved = await resolveMemberByMinecraftUsername(client, username);
+  if (!resolved.ok) return resolved;
+
+  const data = {
+    username: resolved.data.username,
+    discordId: resolved.data.profile.discord_id,
+    tag: getFactionTagFromMember(resolved.data.member),
+    tags: getFactionTagsFromMember(resolved.data.member)
+  };
+
+  factionStateCache.set(cacheKey, {
+    ...data,
+    expiresAt: Date.now() + (options.ttlMs || FACTION_CACHE_TTL_MS)
+  });
+
+  return formatResult(true, 'Resolved faction state from Discord.', data);
+}
+
+async function getDiscordFactionStateForDiscordId(client, discordId) {
+  const resolved = await resolveMemberByDiscordId(client, discordId);
+  if (!resolved.ok) return resolved;
+
+  clearFactionStateCacheForMinecraftUsername(resolved.data.username);
+
+  return formatResult(true, 'Resolved faction state from Discord.', {
+    username: resolved.data.username,
+    discordId,
+    tag: getFactionTagFromMember(resolved.data.member),
+    tags: getFactionTagsFromMember(resolved.data.member)
+  });
 }
 
 async function joinMercs(client, minecraftUsername) {
@@ -161,6 +271,8 @@ async function banishFromFaction(client, minecraftUsername) {
 
 module.exports = {
   FACTION_ROLES,
+  FACTION_ROLE_IDS,
+  FACTION_TAGS,
   joinMercs,
   joinKams,
   joinLegion,
@@ -169,5 +281,11 @@ module.exports = {
   banishFromFaction,
   setFactionRole,
   setMemberFactionRole,
-  clearMemberFactionRoles
+  clearMemberFactionRoles,
+  getDiscordFactionStateForMinecraftUsername,
+  getDiscordFactionStateForDiscordId,
+  clearFactionStateCacheForDiscordId,
+  clearFactionStateCacheForMinecraftUsername,
+  getFactionTagFromMember,
+  getFactionTagsFromMember
 };

@@ -1,6 +1,10 @@
 const path = require('path');
 const { Client, GatewayIntentBits, Partials, EmbedBuilder } = require('discord.js');
 const eventBus = require('../eventBus');
+const {
+  FACTION_ROLE_IDS,
+  clearFactionStateCacheForDiscordId
+} = require('../factionManager');
 const { safeReply } = require('./commands/interactionResponses');
 const {
   upsertMinecraftProfile,
@@ -175,6 +179,19 @@ function registerDiscordAuditHandlers(client) {
     const newRoles = new Set(newMember.roles.cache.keys());
     const addedRoles = [...newRoles].filter((role) => !oldRoles.has(role));
     const removedRoles = [...oldRoles].filter((role) => !newRoles.has(role));
+    const changedFactionRoles = [...addedRoles, ...removedRoles].filter((roleId) => FACTION_ROLE_IDS.includes(roleId));
+    if (changedFactionRoles.length) {
+      clearFactionStateCacheForDiscordId(newMember.id);
+      eventBus.emit(DISCORD_EVENT, {
+        event: 'memberFactionRolesChanged',
+        content: {
+          memberId: newMember.id,
+          addedRoles: addedRoles.filter((roleId) => FACTION_ROLE_IDS.includes(roleId)),
+          removedRoles: removedRoles.filter((roleId) => FACTION_ROLE_IDS.includes(roleId))
+        }
+      });
+    }
+
     if (addedRoles.length) {
       const added = addedRoles.map((id) => newMember.roles.cache.get(id)?.name || id).join(', ');
       changes.push(`Roles added: ${added}`);
