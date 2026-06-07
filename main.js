@@ -24,6 +24,7 @@ function loadModules(context) {
 
 async function bootstrap() {
   const server = createServer();
+  api.mountWeb({ client, server });
 
   loadModules({ server, client });
 

@@ -1,5 +1,6 @@
 const express = require("express");
 const eventBus = require("../eventBus");
+const { createWebRouter } = require("../web/routes");
 
 const { MINECRAFT_EVENT } = eventBus.EVENTS
 
@@ -22,17 +23,19 @@ app.use(express.json({ limit: '2mb' })); // application/json
 app.use(express.urlencoded({ extended: false, limit: '2mb' })); // application/x-www-form-urlencoded
 app.use(express.text({ type: ['text/*', 'application/xml'], limit: '2mb' })); // text/plain, xml, etc.
 
+let webRouterMounted = false;
 
-// Body parsing (primarily POST)
-app.use(express.json({ limit: '2mb' })); // application/json
-app.use(express.urlencoded({ extended: false, limit: '2mb' })); // application/x-www-form-urlencoded
-app.use(express.text({ type: ['text/*', 'application/xml'], limit: '2mb' })); // text/plain, xml, etc.
-
+function mountWeb(context = {}) {
+  if (webRouterMounted) return;
+  webRouterMounted = true;
+  app.use('/web', createWebRouter(context));
+  app.get('/', (req, res) => res.redirect('/web/'));
+}
 
 // POST /mclink/unwhitelist
 app.post("/mclink/unwhitelist", (req, res) => {
   // req.body will be the parsed JSON object if Content-Type: application/json
-  const payload = req.body;
+  const payload = req.body || {};
 
   if (!payload.target) {
     console.warn("/mclink/unwhitelist", "payload should contain target.");
@@ -58,7 +61,7 @@ app.post("/mclink/unwhitelist", (req, res) => {
 // POST /mclink/event
 app.post("/mclink/event", (req, res) => {
   // req.body will be the parsed JSON object if Content-Type: application/json
-  const payload = req.body;
+  const payload = req.body || {};
 
   if (!payload.event) {
     console.warn("/mclink/event", "payload should contain event id.");
@@ -77,3 +80,8 @@ app.post("/mclink/event", (req, res) => {
 app.listen(PORT, () => {
   console.log(`HTTP API listening on :${PORT}`);
 });
+
+module.exports = {
+  app,
+  mountWeb
+};
