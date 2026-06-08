@@ -21,7 +21,8 @@ const WORLD_PATH = path.join(SERVER_ROOT, 'worlds', WORLD_NAME);
 const LINK_ADDON_PATH = path.join(__dirname, 'linkaddon');
 const BEHAVIOR_ADDON_PATH = path.join(LINK_ADDON_PATH, 'behavior');
 const RESOURCE_ADDON_PATH = path.join(LINK_ADDON_PATH, 'resource');
-const BACKUP_PATH = path.join(__dirname, 'backups');
+const MC_CONFIG_PATH = path.join(__dirname, 'mcConfig.json');
+const DEFAULT_BACKUP_PATH = path.join(__dirname, 'backups');
 const SERVER_STATE_FOLDER = 'server state';
 const DEFAULT_BINARY = path.join(
   SERVER_ROOT,
@@ -33,6 +34,9 @@ const SERVER_PROPERTIES_PATH = path.join(SERVER_ROOT, 'server.properties');
 const SERVER_CONFIG_PATH = path.join(SERVER_ROOT, 'config');
 const STOP_TIMEOUT_MS = 10000;
 const FORCE_STOP_TIMEOUT_MS = 10000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const TRANSIENT_BACKUP_MAX_AGE_MS = 2 * DAY_MS;
+const HOURLY_BACKUP_MAX_AGE_MS = 32 * DAY_MS;
 
 function writeJson(filePath, data) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -51,6 +55,11 @@ function copyRecursive(src, dest) {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.copyFileSync(src, dest);
   }
+}
+
+function removeRecursive(targetPath) {
+  if (!fs.existsSync(targetPath)) return;
+  fs.rmSync(targetPath, { recursive: true, force: true });
 }
 
 function readPackEntry(manifestPath) {
@@ -90,6 +99,78 @@ function copyIfExists(src, dest) {
   fs.copyFileSync(src, dest);
 }
 
+function loadMcConfig() {
+  const fallback = {
+    enableAutoBackup: false,
+    backupFrequencyMinutes: 60,
+    backupDirectory: DEFAULT_BACKUP_PATH,
+    zipBackups: false,
+    sevenZipPath: process.platform === 'win32' ? 'C:\\Program Files\\7-Zip\\7z.exe' : '7z'
+  };
+
+  try {
+    if (!fs.existsSync(MC_CONFIG_PATH)) return fallback;
+    return { ...fallback, ...JSON.parse(fs.readFileSync(MC_CONFIG_PATH, 'utf8')) };
+  } catch (err) {
+    eventBus.emit(SERVER_LOG, {
+      level: 'error',
+      message: `Failed to parse Minecraft config ${MC_CONFIG_PATH}: ${err.message}`,
+      important: true
+    });
+    return fallback;
+  }
+}
+
+function resolveConfiguredPath(configuredPath, fallbackPath) {
+  if (!configuredPath || typeof configuredPath !== 'string') return fallbackPath;
+  return path.resolve(path.join(__dirname, '..'), configuredPath);
+}
+
+function formatBackupTimestamp(date = new Date()) {
+  return date.toISOString().replace(/[:.]/g, '-');
+}
+
+function backupTimestampToDate(timestamp = '') {
+  const match = timestamp.match(/^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/);
+  if (!match) return null;
+  const [, day, hour, minute, second, millisecond] = match;
+  const parsed = new Date(`${day}T${hour}:${minute}:${second}.${millisecond}Z`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function parseBackupName(name = '') {
+  const match = name.match(/^([dhmt])-backup-(.+?)(?:\.zip)?$/);
+  if (!match) return null;
+  const [, prefix, timestamp] = match;
+  const createdAt = backupTimestampToDate(timestamp);
+  if (!createdAt) return null;
+  return { prefix, timestamp, createdAt };
+}
+
+function zipDirectory({ sevenZipPath, sourceDirectory, archivePath }) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(sevenZipPath, ['a', '-tzip', archivePath, path.join(sourceDirectory, '*'), '-mx=5'], {
+      windowsHide: true
+    });
+
+    let output = '';
+    child.stdout?.on('data', (data) => {
+      output += data.toString();
+    });
+    child.stderr?.on('data', (data) => {
+      output += data.toString();
+    });
+    child.on('error', reject);
+    child.on('exit', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`7-Zip exited with code ${code}: ${output.trim()}`));
+      }
+    });
+  });
+}
+
 function collectPackEntries(packRoot) {
   const packs = [];
   if (!fs.existsSync(packRoot)) return packs;
@@ -116,7 +197,14 @@ class BedrockServerController {
     this.process = null;
     this.hasCrashed = false;
     this.stopping = false;
+    this.stdoutBuffer = '';
     this.lastLogLevel = 'info';
+    this.config = loadMcConfig();
+    this.backupPath = resolveConfiguredPath(this.config.backupDirectory, DEFAULT_BACKUP_PATH);
+    this.autoBackupTimer = null;
+    this.autoBackupRunning = false;
+    this.crashRestartAttempts = 0;
+    this.crashRestartTimer = null;
     eventBus.handle(SERVER_COMMAND, async (payload) => this.handleExternalCommand(payload));
     eventBus.on(MINECRAFT_EVENT, ({ event, content }) => {
       switch (event) {
@@ -285,7 +373,7 @@ class BedrockServerController {
 
   ensureDirectories() {
     fs.mkdirSync(WORLD_PATH, { recursive: true });
-    fs.mkdirSync(BACKUP_PATH, { recursive: true });
+    fs.mkdirSync(this.backupPath, { recursive: true });
   }
 
   ensureLinkAddon() {
@@ -412,6 +500,7 @@ class BedrockServerController {
   }
 
   async start(binaryPath = process.env.BDS_BINARY || DEFAULT_BINARY) {
+    this.cancelCrashRestart();
     this.ensureDirectories();
     this.ensureLinkAddon();
 
@@ -455,10 +544,12 @@ class BedrockServerController {
     // this.process = spawn(command, [], spawnOptions);
     this.process = spawn(binaryPath, [], spawnOptions);
 
+    this.stdoutBuffer = '';
     this.process.stdout.on('data', (data) => {
-      data
-        .toString()
-        .split(/\r?\n/)
+      this.stdoutBuffer += data.toString();
+      const lines = this.stdoutBuffer.split(/\r?\n/);
+      this.stdoutBuffer = lines.pop() || '';
+      lines
         .filter(Boolean)
         .forEach((line) => this.handleLogLine(line));
     });
@@ -486,8 +577,13 @@ class BedrockServerController {
     this.process.on('exit', (code, signal) => {
       const CTRL_C_EXIT = 0xC000013A; // 3221225786
 
+      if (this.stdoutBuffer.trim()) {
+        this.handleLogLine(this.stdoutBuffer);
+        this.stdoutBuffer = '';
+      }
+
       const stoppedByCtrlC = code === CTRL_C_EXIT;
-      const crashed = !this.stopping && code !== 0;
+      const crashed = !this.stopping && !stoppedByCtrlC && code !== 0;
 
       const message = crashed
         ? `Bedrock server crashed with code ${code ?? 'unknown'}`
@@ -503,12 +599,21 @@ class BedrockServerController {
 
       this.process = null;
       this.stopping = false;
+
+      if (crashed) {
+        this.scheduleCrashRestart(message);
+      } else {
+        this.crashRestartAttempts = 0;
+      }
     });
+
+    this.startAutoBackups();
 
     return { ok: true, message: 'Bedrock server start requested.' };
   }
 
   stop() {
+    this.cancelCrashRestart();
     if (!this.process) {
       eventBus.emit(SERVER_STATE, { state: 'stopped', message: 'Server not running' });
       return Promise.resolve({ ok: true, message: 'Bedrock server is already stopped.', data: { alreadyStopped: true } });
@@ -546,6 +651,7 @@ class BedrockServerController {
   }
 
   forceStop() {
+    this.cancelCrashRestart();
     if (!this.process) {
       eventBus.emit(SERVER_STATE, { state: 'stopped', message: 'Server not running' });
       return Promise.resolve({ ok: true, message: 'Bedrock server is already stopped.', data: { alreadyStopped: true } });
@@ -576,10 +682,154 @@ class BedrockServerController {
     };
   }
 
-  async backup() {
+  scheduleCrashRestart(reason) {
+    if (!this.config.autoRestartAfterCrash) return;
+    if (this.crashRestartTimer) return;
+
+    const maxAttempts = Number(this.config.autoRestartAttempts);
+    if (!Number.isFinite(maxAttempts) || maxAttempts <= 0) {
+      eventBus.emit(SERVER_LOG, {
+        level: 'warn',
+        message: `Auto restart after crash is enabled, but autoRestartAttempts is invalid: ${this.config.autoRestartAttempts}`,
+        important: true
+      });
+      return;
+    }
+
+    if (this.crashRestartAttempts >= maxAttempts) {
+      eventBus.emit(SERVER_LOG, {
+        level: 'error',
+        message: `Bedrock server crashed and auto restart limit was reached (${maxAttempts} attempts).`,
+        important: true
+      });
+      return;
+    }
+
+    this.crashRestartAttempts += 1;
+    const attempt = this.crashRestartAttempts;
+    const delayMs = 5000;
+
+    eventBus.emit(SERVER_LOG, {
+      level: 'warn',
+      message: `Restarting Bedrock server after crash in ${delayMs / 1000} seconds (attempt ${attempt}/${maxAttempts}). ${reason}`,
+      important: true
+    });
+
+    this.crashRestartTimer = setTimeout(() => {
+      this.crashRestartTimer = null;
+      this.start().then((result) => {
+        if (!result?.ok) {
+          eventBus.emit(SERVER_LOG, {
+            level: 'error',
+            message: `Auto restart attempt ${attempt}/${maxAttempts} failed: ${result?.message || 'unknown error'}`,
+            important: true
+          });
+        }
+      }).catch((err) => {
+        eventBus.emit(SERVER_LOG, {
+          level: 'error',
+          message: `Auto restart attempt ${attempt}/${maxAttempts} failed: ${err.message}`,
+          important: true
+        });
+      });
+    }, delayMs);
+  }
+
+  cancelCrashRestart() {
+    if (!this.crashRestartTimer) return;
+    clearTimeout(this.crashRestartTimer);
+    this.crashRestartTimer = null;
+    eventBus.emit(SERVER_LOG, {
+      level: 'info',
+      message: 'Cancelled pending crash auto restart.',
+      important: true
+    });
+  }
+
+  findBackups() {
     this.ensureDirectories();
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const destination = path.join(BACKUP_PATH, `backup-${timestamp}`);
+    return fs
+      .readdirSync(this.backupPath, { withFileTypes: true })
+      .map((entry) => {
+        const parsed = parseBackupName(entry.name);
+        if (!parsed) return null;
+        return {
+          ...parsed,
+          name: entry.name,
+          path: path.join(this.backupPath, entry.name),
+          isDirectory: entry.isDirectory(),
+          isFile: entry.isFile()
+        };
+      })
+      .filter(Boolean);
+  }
+
+  hasBackupForPrefixAndBucket(prefix, bucket) {
+    return this.findBackups().some((backup) => backup.prefix === prefix && backup.timestamp.startsWith(bucket));
+  }
+
+  getAutomaticBackupPrefix(now = new Date()) {
+    const timestamp = formatBackupTimestamp(now);
+    const dayBucket = timestamp.slice(0, 10);
+    if (!this.hasBackupForPrefixAndBucket('d', dayBucket)) return 'd';
+
+    const hourBucket = timestamp.slice(0, 13);
+    if (!this.hasBackupForPrefixAndBucket('h', hourBucket)) return 'h';
+
+    return 't';
+  }
+
+  cleanupExpiredBackups(now = new Date()) {
+    const removals = [];
+    for (const backup of this.findBackups()) {
+      const ageMs = now.getTime() - backup.createdAt.getTime();
+      if (backup.prefix === 't' && ageMs > TRANSIENT_BACKUP_MAX_AGE_MS) {
+        removeRecursive(backup.path);
+        removals.push(backup.name);
+      } else if (backup.prefix === 'h' && ageMs > HOURLY_BACKUP_MAX_AGE_MS) {
+        removeRecursive(backup.path);
+        removals.push(backup.name);
+      }
+    }
+
+    if (removals.length) {
+      eventBus.emit(SERVER_LOG, {
+        level: 'info',
+        message: `Removed ${removals.length} expired backup${removals.length === 1 ? '' : 's'}.`,
+        important: true
+      });
+    }
+  }
+
+  async maybeZipBackup(sourceDirectory) {
+    if (!this.config.zipBackups) return sourceDirectory;
+
+    const archivePath = `${sourceDirectory}.zip`;
+    try {
+      await zipDirectory({
+        sevenZipPath: this.config.sevenZipPath,
+        sourceDirectory,
+        archivePath
+      });
+      removeRecursive(sourceDirectory);
+      return archivePath;
+    } catch (err) {
+      eventBus.emit(SERVER_LOG, {
+        level: 'error',
+        message: `Backup was created but could not be zipped: ${err.message}`,
+        important: true
+      });
+      removeRecursive(archivePath);
+      return sourceDirectory;
+    }
+  }
+
+  async backup({ manual = false } = {}) {
+    this.ensureDirectories();
+    const now = new Date();
+    const timestamp = formatBackupTimestamp(now);
+    const prefix = manual ? 'm' : this.getAutomaticBackupPrefix(now);
+    const destination = path.join(this.backupPath, `${prefix}-backup-${timestamp}`);
     const worldDestination = path.join(destination, 'worlds');
 
     fs.mkdirSync(destination, { recursive: true });
@@ -601,16 +851,21 @@ class BedrockServerController {
 
     this.copyWorldExtras(worldDestination);
     this.copyServerState(destination);
+    const finalDestination = await this.maybeZipBackup(destination);
 
-    const message = `World backup created at ${destination}`;
-    eventBus.emit(SERVER_BACKUP, { path: destination, message, important: true });
-    eventBus.emit(SERVER_LOG, { level: 'info', message });
-    return { ok: true, message, data: { path: destination } };
+    if (!manual) {
+      this.cleanupExpiredBackups(now);
+    }
+
+    const message = `World backup created at ${finalDestination}`;
+    eventBus.emit(SERVER_BACKUP, { path: finalDestination, message, important: true });
+    eventBus.emit(SERVER_LOG, { level: 'info', message, important: true });
+    return { ok: true, message, data: { path: finalDestination } };
   }
 
   requestBackup() {
     setImmediate(() => {
-      this.backup().catch((err) => {
+      this.backup({ manual: true }).catch((err) => {
         eventBus.emit(SERVER_LOG, {
           level: 'error',
           message: `Backup failed: ${err.message}`,
@@ -619,6 +874,57 @@ class BedrockServerController {
       });
     });
     return { ok: true, message: 'Backup started. I will post the backup completion log when it finishes.' };
+  }
+
+  startAutoBackups() {
+    if (!this.config.enableAutoBackup) return;
+    if (this.autoBackupTimer) return;
+
+    const frequencyMinutes = Number(this.config.backupFrequencyMinutes);
+    if (!Number.isFinite(frequencyMinutes) || frequencyMinutes <= 0) {
+      eventBus.emit(SERVER_LOG, {
+        level: 'warn',
+        message: `Automatic backups are enabled, but backupFrequencyMinutes is invalid: ${this.config.backupFrequencyMinutes}`,
+        important: true
+      });
+      return;
+    }
+
+    const intervalMs = frequencyMinutes * 60 * 1000;
+    this.autoBackupTimer = setInterval(() => {
+      if (this.autoBackupRunning) {
+        eventBus.emit(SERVER_LOG, {
+          level: 'warn',
+          message: 'Automatic backup skipped because the previous backup is still running.',
+          important: true
+        });
+        return;
+      }
+
+      this.autoBackupRunning = true;
+      eventBus.emit(SERVER_LOG, {
+        level: 'info',
+        message: `Automatic backup started (${frequencyMinutes} minute interval).`,
+        important: true
+      });
+      this.backup()
+        .catch((err) => {
+          eventBus.emit(SERVER_LOG, {
+            level: 'error',
+            message: `Automatic backup failed: ${err.message}`,
+            important: true
+          });
+        })
+        .finally(() => {
+          this.autoBackupRunning = false;
+        });
+    }, intervalMs);
+
+    eventBus.emit(SERVER_LOG, {
+      level: 'info',
+      message: `Automatic backups scheduled every ${frequencyMinutes} minutes.`,
+      important: true
+    });
   }
 
   async update(details = 'Manual update triggered') {
@@ -819,6 +1125,7 @@ class BedrockServerController {
     }
 
     if (normalized.startsWith('Server started.')) {
+      this.crashRestartAttempts = 0;
       eventBus.emit(SERVER_STATE, { state: 'running', message: 'Bedrock server is online', important: true });
       return;
     } else if (normalized.startsWith('Starting Server')) {
@@ -848,6 +1155,9 @@ class BedrockServerController {
       }
       return;
     }
+
+    const message = normalized || raw;
+    eventBus.emit(SERVER_LOG, { level: (level || sourceLevel || 'info').toLowerCase(), message });
   }
 
   async handleExternalCommand(payload = {}) {

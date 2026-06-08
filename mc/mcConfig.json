@@ -1,7 +1,9 @@
 {
   "enableAutoBackup": true,
-  "backupFrequencyMinutes": 60,
+  "backupFrequencyMinutes": 30,
   "backupDirectory": "./mc/backups",
+  "zipBackups": true,
+  "sevenZipPath": "C:\\Program Files\\7-Zip\\7z.exe",
   "autoRestartAfterCrash": true,
   "autoRestartAttempts": 5
 }
