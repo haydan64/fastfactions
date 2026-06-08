@@ -49,11 +49,14 @@ world.afterEvents.entityDie.subscribe((eventData) => {
     sendEvent("entityDied", {
         entity: eventData.deadEntity.id,
         entityType: eventData.deadEntity.typeId,
-        entityName: eventData.deadEntity.nameTag || eventData.deadEntity.name || null,
+        entityName: eventData.deadEntity.name || eventData.deadEntity.nameTag || eventData.deadEntity.name || null,
         damagingEntity: eventData.damageSource.damagingEntity?.id || null,
         damagingEntityType: eventData.damageSource.damagingEntity?.typeId || null,
         damagingEntityName: eventData.damageSource.damagingEntity?.isValid
-            ? (eventData.damageSource.damagingEntity?.nameTag || null)
+            ? (
+                eventData.damageSource.damagingEntity?.name ||
+                eventData.damageSource.damagingEntity?.nameTag ||
+                null)
             : null,
         cause: eventData.damageSource.cause,
         location: eventData.deadEntity.location,
