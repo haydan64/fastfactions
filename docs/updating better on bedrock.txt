@@ -1,0 +1,11 @@
+Make sure that the wawla will ignore spectators.
+
+/** @param { import("@minecraft/server").Player } player */
+export function wawla(player) {
+    const entity = player.getEntitiesFromViewDirection({
+        maxDistance,
+        excludeFamilies: ["wawla"],
+        excludeGameModes: [
+            "Creative",
+            "Spectator"
+        ]
